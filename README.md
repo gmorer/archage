@@ -2,11 +2,11 @@
 Selectively compile which arch package to locally compile for more customisation. Kindof like geento style (portage+arch).
 
 ## Usage:
-Add a new entry to the `/etc/pacman.conf` with the output path of archage, should be before `[core]` and `[extra]`:
+Add a new entry to the `/etc/pacman.conf` with the output path of *pacage*, should be before `[core]` and `[extra]`:
 ```
 [...]
 
-[archage]
+[pacage]
 SigLevel = Optional TrustAll
 Server = file://<SERVER_DIR>
 
@@ -17,7 +17,9 @@ Server = file://<SERVER_DIR>
 - [x] Parse conf
 - [x] Downloads listed pkgs
 - [x] Compile downloaded pkgs
-- [ ] Command::output() merge stdout/stderr
+- [x] Command::output() merge stdout/stderr
 - [ ] Handle errors
 - [ ] Daemon mod
 - [ ] Build flags
+- [ ] PKGBUILD flags `groups=('pacage')`
+- [ ] Keep build files

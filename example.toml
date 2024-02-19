@@ -1,4 +1,4 @@
-server_dir = "/tmp/archage"
+server_dir = "/tmp/pacage"
 
 packages = [
   "aerc"

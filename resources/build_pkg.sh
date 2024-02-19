@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 # This script meant to be used inside a container
+# USAGE: <script> <pkgs...>
 
 set -e
 
@@ -15,10 +16,7 @@ build_pkg() {
   chown -R root:root *
 }
 
-chmod -R a+x /build
-pkgs=$(ls */PKGBUILD | cut -d '/' -f1)
-
-for i in $pkgs; do
+for i in $1; do
   cd $i
   build_pkg
   cd ..

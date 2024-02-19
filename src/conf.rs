@@ -4,11 +4,7 @@ use std::path::PathBuf;
 use std::string::String;
 use std::vec::Vec;
 
-const DEFAULT_CONF_LOCATION: &str = "/etc/archage/conf.toml";
-
-fn default_repo() -> String {
-    "https://gitlab.archlinux.org/archlinux/packaging/packages/".to_string()
-}
+const DEFAULT_CONF_LOCATION: &str = "/etc/pacage/conf.toml";
 
 fn default_server() -> PathBuf {
     PathBuf::from("/tmp/archage")
@@ -16,9 +12,6 @@ fn default_server() -> PathBuf {
 
 #[derive(Deserialize, Debug, Default)]
 pub struct Conf {
-    #[serde(default = "default_repo")]
-    pub repo: String,
-
     #[serde(default = "default_server")]
     pub server_dir: PathBuf,
 
@@ -36,7 +29,6 @@ impl Conf {
     }
 
     pub fn print(&self) {
-        println!("Repo: {}", self.repo);
         println!("Server: {:?}", self.server_dir);
     }
 

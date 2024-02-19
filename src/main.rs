@@ -5,6 +5,9 @@ use std::process::Command;
 pub mod conf;
 pub use conf::Conf;
 
+pub mod cmd;
+use cmd::command;
+
 pub mod cli;
 use cli::Args;
 
@@ -25,7 +28,7 @@ fn find_package(conf: &Conf, name: &str) -> Option<String> {
 
 // aerc-0.16.0-1-x86_64.pkg.tar.zst
 fn repo_add(conf: &Conf) {
-    let db = Path::new(&conf.server_dir).join("archage.db.tar.gz");
+    let db = Path::new(&conf.server_dir).join("pacage.db.tar.gz");
     for pkg in &conf.packages {
         if let Some(package_file) = find_package(conf, &pkg) {
             println!("repo-add -> {}", pkg);
@@ -36,18 +39,12 @@ fn repo_add(conf: &Conf) {
                 &moved_package_file,
             )
             .unwrap();
-            let output = Command::new("repo-add")
-                .current_dir(&conf.server_dir)
-                .args([&db, &moved_package_file])
-                .output()
-                .unwrap();
-            if !output.status.success() {
-                eprintln!(
-                    "Failed to add {} to the db:\n stdout: {}\nstderr:{}",
-                    pkg,
-                    String::from_utf8_lossy(&output.stdout),
-                    String::from_utf8_lossy(&output.stderr)
-                );
+            let mut cmd = Command::new("repo-add");
+            cmd.current_dir(&conf.server_dir)
+                .args([&db, &moved_package_file]);
+            let (status, _) = command(cmd).unwrap();
+            if !status.success() {
+                eprintln!("Failed to add {} to the db:", pkg);
             }
         } else {
             eprintln!("Failed to find {} package file", pkg);
@@ -62,12 +59,12 @@ fn main() {
     conf.print();
 
     fs::create_dir_all(&conf.server_dir).unwrap();
-    if !args.skip_download {
-        println!("Downloading packages...");
-        download::download_all(&conf);
-    }
+    // if !args.skip_download {
+    println!("Downloading packages...");
+    let to_build = download::download_all(&conf);
+    // }
     println!("Building packages...");
-    build::build_all(&conf);
+    build::build(&conf, to_build);
     println!("Adding packages...");
     repo_add(&conf);
 }
