@@ -4,17 +4,30 @@
 # USAGE: <script> <pkgs...>
 
 set -e
+set -x
+
+
+# Adding an builder user
+useradd -M builder
+
+# Remove capabilities of files in a directory $1
+set_perm() {
+  local dir=$1
+  getcap $dir/* | cut -d' ' -f1 | while read line ; do setcap -r $line ; done
+}
 
 build_pkg() {
   source PKGBUILD
   pacman -Sy --noconfirm ${depends[@]} ${makedepends[@]}
-  chmod -R a+w .
-  chmod -R a+r .
-  runuser -unobody -m -- makepkg -c -f --config /build/makepkg.conf
-  runuser -unobody -- makepkg --printsrcinfo > .SRCINFO
+
+  # Getting "Operation not permitted" otherwise
+  set_perm "/usr/sbin"
+
+  chown -R builder:builder *
+  runuser -u builder -m -- makepkg -c -f --config /build/makepkg.conf
+  runuser -u builder -- makepkg --printsrcinfo > .SRCINFO
   chown -R root:root *
 }
-
 
 for pkg in $@; do
   pushd pkgs/$pkg

@@ -1,4 +1,5 @@
 use std::fs;
+use std::ops::Deref;
 use std::path::Path;
 use std::process::Command;
 
@@ -56,7 +57,12 @@ fn main() {
 
     fs::create_dir_all(&conf.server_dir).unwrap();
     println!("Downloading packages...");
-    let to_build = download::download_all(&conf, args.force_rebuild);
+    let to_build = if !args.skip_download {
+        download::download_all(&conf, args.force_rebuild)
+    } else {
+        // Not nice
+        conf.packages.iter().map(|a| a).collect::<Vec<&String>>()
+    };
     println!("Building packages...");
     build::build(&conf, &to_build);
     println!("Adding packages...");

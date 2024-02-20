@@ -10,11 +10,11 @@ pub struct Args {
     /// Rebuild packages even if there is no new versions
     #[arg(long)]
     pub force_rebuild: bool,
-}
 
-/// Only build package that have been previously downloaded
-// #[arg(long)]
-// pub skip_download: bool,
+    /// Only build package that have been previously downloaded
+    #[arg(long)]
+    pub skip_download: bool,
+}
 
 impl Args {
     pub fn get() -> Self {
