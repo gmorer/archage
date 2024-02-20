@@ -6,6 +6,10 @@ pub struct Args {
     /// where to load conf from, default is <DEFAULT>
     #[arg(short)]
     pub conf: Option<String>,
+
+    /// Rebuild packages even if there is no new versions
+    #[arg(long)]
+    pub force_rebuild: bool,
 }
 
 /// Only build package that have been previously downloaded

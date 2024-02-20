@@ -61,15 +61,14 @@ pub fn command(mut cmd: Command) -> Result<(ExitStatus, Vec<String>), ()> {
                             println!("error while readig output: {}", e);
                         }
                     }
-                    let mut tmp_line = "";
-                    for line in line_buffer.split('\n') {
-                        tmp_line = line;
-                        if !line.is_empty() {
-                            println!("{}", line);
-                            output.push(line.to_string());
-                        }
+                    let mut offset = 0;
+                    while let Some(index) = line_buffer[offset..].find('\n') {
+                        let line = &line_buffer[offset..(index + offset)];
+                        println!("{}", line);
+                        output.push(line.to_string());
+                        offset += index + 1;
                     }
-                    *line_buffer = tmp_line.to_string();
+                    *line_buffer = line_buffer[offset..].to_string();
                 }
             }
             Err(e) => {

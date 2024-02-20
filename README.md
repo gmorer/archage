@@ -13,6 +13,21 @@ Server = file://<SERVER_DIR>
 [...]
 ```
 
+## Server dir
+```bash
+├ pkgs/                # Packages sources dirs
+│ ├ some_package/
+│ └ [..]
+├ pacage_build.sh
+├ pacage.db@ -> pacage.db.tar.gz
+├ pacage.db.tar.gz
+├ pacage.files@ -> pacage.files.tar.gz
+├ pacage.files.tar.gz
+├ some_package-0.16.0-1-x86_64.pkg.tar.zst
+└ [..]
+
+```
+
 # TODOS:
 - [x] Parse conf
 - [x] Downloads listed pkgs

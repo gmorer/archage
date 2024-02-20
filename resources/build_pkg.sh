@@ -6,18 +6,18 @@
 set -e
 
 build_pkg() {
-  env
   source PKGBUILD
   pacman -Sy --noconfirm ${depends[@]} ${makedepends[@]}
   chmod -R a+w .
   chmod -R a+r .
-  runuser -unobody -m -- makepkg -c -f
+  runuser -unobody -m -- makepkg -c -f --config /build/makepkg.conf
   runuser -unobody -- makepkg --printsrcinfo > .SRCINFO
   chown -R root:root *
 }
 
-for i in $1; do
-  cd $i
-  build_pkg
-  cd ..
+
+for pkg in $@; do
+  pushd pkgs/$pkg
+  build_pkg $pkgbuild
+  popd
 done
