@@ -3,8 +3,17 @@ use std::fs::read_to_string;
 use std::path::PathBuf;
 use std::string::String;
 use std::vec::Vec;
+use thiserror::Error;
 
 const DEFAULT_CONF_LOCATION: &str = "/etc/pacage/conf.toml";
+
+#[derive(Debug, Error)]
+pub enum ConfError {
+    #[error("System error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("parsing error: {0}")]
+    Parse(#[from] toml::de::Error),
+}
 
 fn default_server() -> PathBuf {
     PathBuf::from("/tmp/archage")
@@ -35,8 +44,8 @@ pub struct Makepkg {
 }
 
 impl Makepkg {
-    pub fn to_file(&self) -> String {
-        let mut file = std::fs::read_to_string("/etc/makepkg.conf").unwrap();
+    pub fn to_file(&self) -> Result<String, std::io::Error> {
+        let mut file = std::fs::read_to_string("/etc/makepkg.conf")?;
         file.push('\n');
         if let Some(packager) = &self.packager {
             // TODO: verify packager name
@@ -60,14 +69,14 @@ impl Makepkg {
         if let Some(ltoflags) = &self.ltoflags {
             file.push_str(&format!("LTOFLAGS=\"{}\"\n", ltoflags));
         }
-        file
+        Ok(file)
     }
 }
 
 impl Conf {
-    pub fn new(conf_file: Option<&str>) -> Self {
-        let f = read_to_string(conf_file.unwrap_or(DEFAULT_CONF_LOCATION)).unwrap();
-        toml::from_str(&f).unwrap()
+    pub fn new(conf_file: Option<&str>) -> Result<Self, ConfError> {
+        let f = read_to_string(conf_file.unwrap_or(DEFAULT_CONF_LOCATION))?;
+        Ok(toml::from_str(&f)?)
     }
 
     pub fn print(&self) {

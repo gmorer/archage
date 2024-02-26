@@ -33,8 +33,10 @@ Server = file://<SERVER_DIR>
 - [x] Downloads listed pkgs
 - [x] Compile downloaded pkgs
 - [x] Command::output() merge stdout/stderr
-- [ ] Handle errors
+- [x] Handle errors
 - [ ] Daemon mod
-- [ ] Build flags
+- [ ] Logger
+- [x] Build flags
 - [ ] PKGBUILD flags `groups=('pacage')`
 - [ ] Keep build files
+- [ ] Container run / Container exec ala cross-rs
