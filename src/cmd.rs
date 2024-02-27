@@ -1,3 +1,4 @@
+use log::{debug, error};
 use nix::sys::epoll::{Epoll, EpollCreateFlags, EpollEvent, EpollFlags};
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
 use std::os::fd::AsFd;
@@ -57,53 +58,46 @@ pub fn command(mut cmd: Command) -> Result<(ExitStatus, Vec<String>), ExecError>
     let mut buff = [0; 500];
     let status = loop {
         let mut events = [EpollEvent::empty(), EpollEvent::empty()];
-        match poll.wait(&mut events, 100) {
-            Ok(x) => {
-                if let Some(status) = match child.try_wait() {
-                    Ok(res) => res,
-                    Err(e) => {
-                        eprintln!("Error while waiting for child process: {}", e);
-                        continue;
-                    }
-                } {
-                    break status;
-                }
-                for ev in 0..x {
-                    let (fd, raw_fd, line_buffer) = if events[ev].data() == 0 {
-                        (stdout.as_fd(), stdout_fd, &mut stdout_buffer)
-                    } else if events[ev].data() == 1 {
-                        (stderr.as_fd(), stderr_fd, &mut stderr_buffer)
-                    } else {
-                        eprintln!("Should no tbe possible");
-                        continue;
-                    };
-                    if events[ev].events().contains(EpollFlags::EPOLLHUP) {
-                        // TODO: Error but with the output
-                        poll.delete(fd)?;
-                        continue;
-                    }
-                    match nix::unistd::read(raw_fd, &mut buff) {
-                        Ok(n) => {
-                            line_buffer.push_str(&String::from_utf8_lossy(&buff[..n]));
-                        }
-                        Err(e) => {
-                            println!("error while readig output: {}", e);
-                        }
-                    }
-                    let mut offset = 0;
-                    while let Some(index) = line_buffer[offset..].find('\n') {
-                        let line = &line_buffer[offset..(index + offset)];
-                        println!("{}", line);
-                        output.push(line.to_string());
-                        offset += index + 1;
-                    }
-                    *line_buffer = line_buffer[offset..].to_string();
-                }
-            }
+        let x = poll.wait(&mut events, 100)?;
+        if let Some(status) = match child.try_wait() {
+            Ok(res) => res,
             Err(e) => {
-                eprintln!("Error: {}", e);
-                panic!("error");
+                error!("Error while waiting for child process: {}", e);
+                continue;
             }
+        } {
+            break status;
+        }
+        for ev in 0..x {
+            let (fd, raw_fd, line_buffer) = if events[ev].data() == 0 {
+                (stdout.as_fd(), stdout_fd, &mut stdout_buffer)
+            } else if events[ev].data() == 1 {
+                (stderr.as_fd(), stderr_fd, &mut stderr_buffer)
+            } else {
+                error!("Should no tbe possible");
+                continue;
+            };
+            if events[ev].events().contains(EpollFlags::EPOLLHUP) {
+                // TODO: Error but with the output
+                poll.delete(fd)?;
+                continue;
+            }
+            match nix::unistd::read(raw_fd, &mut buff) {
+                Ok(n) => {
+                    line_buffer.push_str(&String::from_utf8_lossy(&buff[..n]));
+                }
+                Err(e) => {
+                    error!("error while readig output: {}", e);
+                }
+            }
+            let mut offset = 0;
+            while let Some(index) = line_buffer[offset..].find('\n') {
+                let line = &line_buffer[offset..(index + offset)];
+                debug!("{}", line);
+                output.push(line.to_string());
+                offset += index + 1;
+            }
+            *line_buffer = line_buffer[offset..].to_string();
         }
     };
     Ok((status, output))

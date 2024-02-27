@@ -1,3 +1,4 @@
+use log::{error, info};
 use std::process::Command;
 use thiserror::Error;
 
@@ -14,7 +15,7 @@ pub enum BuildError {
 
 pub fn build(conf: &Conf, pkgs: &Vec<&str>) -> Result<(), BuildError> {
     if pkgs.is_empty() {
-        println!("Nothing to build");
+        info!("Nothing to build");
         return Ok(());
     }
     let server_dir = conf.host_server_dir.as_deref();
@@ -25,7 +26,7 @@ pub fn build(conf: &Conf, pkgs: &Vec<&str>) -> Result<(), BuildError> {
             .as_encoded_bytes(),
     );
     let mut cmd = Command::new("podman-remote");
-    println!("pkgs => {:?}", pkgs);
+    info!("pkgs => {:?}", pkgs);
     cmd.current_dir(&conf.server_dir)
         .args([
             "run",
@@ -42,7 +43,7 @@ pub fn build(conf: &Conf, pkgs: &Vec<&str>) -> Result<(), BuildError> {
     let (status, out) = command(cmd)?;
 
     if !status.success() {
-        eprintln!("Fail to build");
+        error!("Fail to build");
         Err(CmdError::from_output(out))?
     }
     Ok(())

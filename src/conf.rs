@@ -30,6 +30,9 @@ pub struct Conf {
     pub packages: Vec<String>,
     // TODO: container_runner: (podman, docker...)
     pub makepkg: Makepkg,
+
+    // TODO
+    pub build_log_dir: Option<PathBuf>,
 }
 
 #[derive(Deserialize, Debug, Default)]

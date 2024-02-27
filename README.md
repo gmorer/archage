@@ -35,7 +35,7 @@ Server = file://<SERVER_DIR>
 - [x] Command::output() merge stdout/stderr
 - [x] Handle errors
 - [ ] Daemon mod
-- [ ] Logger
+- [ ] Logger and build logs
 - [x] Build flags
 - [ ] PKGBUILD flags `groups=('pacage')`
 - [ ] Keep build files

@@ -1,3 +1,4 @@
+use log::{error, info, LevelFilter};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -23,7 +24,7 @@ fn find_package(conf: &Conf, name: &str) -> Option<String> {
     let dir = match fs::read_dir(conf.pkg_dir(name)) {
         Ok(d) => d,
         Err(e) => {
-            eprintln!("Fail to open pkg dir for {}: {}", name, e);
+            error!("[{}] Fail to open pkg dir: {}", name, e);
             return None;
         }
     };
@@ -31,7 +32,7 @@ fn find_package(conf: &Conf, name: &str) -> Option<String> {
         let path = match entry {
             Ok(e) => e.file_name(),
             Err(e) => {
-                eprintln!("Fail to check for file in {} pkg dir: {}", name, e);
+                error!("[{}] Fail to check for files in pkg dir: {}", name, e);
                 return None;
             }
         };
@@ -45,6 +46,10 @@ fn find_package(conf: &Conf, name: &str) -> Option<String> {
 
 // aerc-0.16.0-1-x86_64.pkg.tar.zst
 fn repo_add(conf: &Conf, to_build: Vec<&str>) {
+    if to_build.is_empty() {
+        info!("Nothing to add");
+        return;
+    }
     let db = Path::new(&conf.server_dir).join("pacage.db.tar.gz");
     for pkg in to_build {
         if let Some(package_file) = find_package(conf, &pkg) {
@@ -52,8 +57,9 @@ fn repo_add(conf: &Conf, to_build: Vec<&str>) {
             let moved_package_file = Path::new(&conf.server_dir).join(&package_file);
             let orig_package_file = conf.pkg_dir(pkg).join(&package_file);
             if let Err(e) = std::fs::rename(&orig_package_file, &moved_package_file) {
-                eprintln!(
-                    "Failed to move {} to {}: {}",
+                error!(
+                    "[{}] Failed to move {} to {}: {}",
+                    pkg,
                     orig_package_file.display(),
                     moved_package_file.display(),
                     e
@@ -66,14 +72,14 @@ fn repo_add(conf: &Conf, to_build: Vec<&str>) {
             match command(cmd) {
                 Ok((status, _)) if status.success() => {}
                 Ok((_, out)) => {
-                    eprintln!("Failed to add {} to the db: {:?}", pkg, out);
+                    error!("[{}] Failed to add the package to the db: {:?}", pkg, out);
                 }
                 Err(e) => {
-                    eprintln!("Failed to add {} to the db: {}", pkg, e);
+                    error!("[{}] Failed to add to the db: {}", pkg, e);
                 }
             };
         } else {
-            eprintln!("Failed to find {} package file", pkg);
+            error!("[{}] Failed to find package file", pkg);
         }
     }
 }
@@ -83,6 +89,7 @@ fn to_string<T: std::string::ToString>(e: T) -> String {
 }
 
 fn init(args: &Args) -> Result<Conf, String> {
+    env_logger::builder().filter_level(LevelFilter::Info).init();
     let conf = Conf::new(args.conf.as_deref()).map_err(to_string)?;
     conf.print();
     fs::create_dir_all(&conf.server_dir).map_err(to_string)?;
@@ -107,12 +114,12 @@ fn main() {
     let conf = match init(&args) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("Failed to init: {}", e);
+            error!("Failed to init: {}", e);
             std::process::exit(2);
         }
     };
 
-    println!("Downloading packages...");
+    info!("Downloading packages...");
     let to_build = if !args.skip_download {
         download::download_all(&conf, args.force_rebuild)
     } else {
@@ -122,10 +129,10 @@ fn main() {
             .map(|a| a.as_str())
             .collect::<Vec<&str>>()
     };
-    println!("Building packages...");
+    info!("Building packages...");
     if let Err(e) = build::build(&conf, &to_build) {
-        eprintln!("Failed to build packages: {}", e);
+        error!("Failed to build packages: {}", e);
     }
-    println!("Adding packages...");
+    info!("Adding packages...");
     repo_add(&conf, to_build);
 }

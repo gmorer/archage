@@ -1,3 +1,4 @@
+use log::{error, info};
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
@@ -32,16 +33,16 @@ fn download_pkg(conf: &Conf, pkg: &str) -> Result<(), DownloadError> {
         .args(["repo", "clone", "--protocol=https", &pkg]);
     let (status, out) = command(cmd)?;
     if status.success() {
-        println!("Download package: {}", pkg);
+        info!("[{}] Download package", pkg);
         Ok(())
     } else {
-        eprintln!("Failed to download {}", pkg);
+        error!("[{}] Failed to download", pkg);
         Err(CmdError::from_output(out))?
     }
 }
 
 fn update_pkg(pkg: &str, pkg_dir: &PathBuf, force_rebuild: bool) -> Result<bool, DownloadError> {
-    println!("[{}] git rev-parse HEAD", pkg);
+    info!("[{}] git rev-parse HEAD", pkg);
     let mut cmd = Command::new("git");
     cmd.current_dir(pkg_dir).args(["rev-parse", "HEAD"]);
     let (status, previous) = command(cmd)?;
@@ -49,7 +50,7 @@ fn update_pkg(pkg: &str, pkg_dir: &PathBuf, force_rebuild: bool) -> Result<bool,
         return Err((CmdError::from_output(previous)).into());
     };
 
-    println!("[{}] git pull", pkg);
+    info!("[{}] git pull", pkg);
     let mut cmd = Command::new("git");
     cmd.current_dir(pkg_dir).arg("pull");
     let (status, out) = command(cmd)?;
@@ -57,7 +58,7 @@ fn update_pkg(pkg: &str, pkg_dir: &PathBuf, force_rebuild: bool) -> Result<bool,
         Err(CmdError::from_output(out))?
     }
 
-    println!("[{}] git rev-parse HEAD", pkg);
+    info!("[{}] git rev-parse HEAD", pkg);
     /* Getting the new version */
     let mut cmd = Command::new("git");
     cmd.current_dir(pkg_dir).args(["rev-parse", "HEAD"]);
@@ -75,7 +76,7 @@ fn update_pkg(pkg: &str, pkg_dir: &PathBuf, force_rebuild: bool) -> Result<bool,
 pub fn download_all<'a>(conf: &'a Conf, force_rebuild: bool) -> Vec<&'a str> {
     let mut to_build: Vec<&str> = Vec::new();
     conf.packages.chunks(PARALLEL_DOWNLOAD).for_each(|chunk| {
-        println!("Downloading the following packages: {:?}", chunk);
+        info!("Downloading the following packages: {:?}", chunk);
         to_build.append(
             &mut chunk
                 .into_par_iter()
@@ -88,7 +89,7 @@ pub fn download_all<'a>(conf: &'a Conf, force_rebuild: bool) -> Vec<&'a str> {
                             Ok(true) => Some(pkg),
                             Ok(false) => None,
                             Err(e) => {
-                                eprintln!("Failed to update {}: {}", pkg, e);
+                                error!("[{}] Failed to update: {}", pkg, e);
                                 None
                             }
                         }
@@ -99,7 +100,7 @@ pub fn download_all<'a>(conf: &'a Conf, force_rebuild: bool) -> Vec<&'a str> {
                         match download_pkg(conf, pkg) {
                             Ok(()) => Some(pkg),
                             Err(e) => {
-                                eprintln!("Failed to download {}: {}", pkg, e);
+                                error!("[{}] Failed to download: {}", pkg, e);
                                 None
                             }
                         }
