@@ -8,7 +8,9 @@ set -x
 
 
 # Adding an builder user
-useradd -M builder
+if ! id builder; then
+  useradd -M builder
+fi
 
 # Remove capabilities of files in a directory $1
 set_perm() {

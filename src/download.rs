@@ -99,10 +99,7 @@ pub fn download_all<'a>(conf: &'a Conf, force_rebuild: bool) -> Vec<&'a str> {
                         }
                         match download_pkg(conf, pkg) {
                             Ok(()) => Some(pkg),
-                            Err(e) => {
-                                error!("[{}] Failed to download: {}", pkg, e);
-                                None
-                            }
+                            Err(_) => None,
                         }
                     }
                 })

@@ -1,5 +1,5 @@
 use log::{error, info, LevelFilter};
-use std::fs;
+use std::fs::{self, create_dir_all};
 use std::path::Path;
 use std::process::Command;
 
@@ -92,9 +92,13 @@ fn init(args: &Args) -> Result<Conf, String> {
     env_logger::builder().filter_level(LevelFilter::Info).init();
     let conf = Conf::new(args.conf.as_deref()).map_err(to_string)?;
     conf.print();
-    fs::create_dir_all(&conf.server_dir).map_err(to_string)?;
+    create_dir_all(&conf.server_dir).map_err(to_string)?;
     let pkgs_dir = conf.server_dir.join("pkgs");
-    fs::create_dir_all(&pkgs_dir).map_err(to_string)?;
+    create_dir_all(&pkgs_dir).map_err(to_string)?;
+    info!("BUILDL LGO DIR: {:?}", conf.build_log_dir);
+    if let Some(build_log_dir) = &conf.build_log_dir {
+        create_dir_all(build_log_dir).map_err(to_string)?;
+    }
     fs::write(
         Path::new(&conf.server_dir).join("makepkg.conf"),
         conf.makepkg.to_file().map_err(to_string)?,
@@ -130,9 +134,13 @@ fn main() {
             .collect::<Vec<&str>>()
     };
     info!("Building packages...");
-    if let Err(e) = build::build(&conf, &to_build) {
-        error!("Failed to build packages: {}", e);
+    match build::build(&conf, to_build) {
+        Ok(builded) => {
+            info!("Adding packages...");
+            repo_add(&conf, builded);
+        }
+        Err(e) => {
+            error!("Failed to build packages: {}", e);
+        }
     }
-    info!("Adding packages...");
-    repo_add(&conf, to_build);
 }
