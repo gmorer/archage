@@ -1,8 +1,11 @@
-# Portarch
-Selectively compile which arch package to locally compile for more customisation. Kindof like geento style (portage+arch).
+# Pacage
+Selectively locally compile arch packages for more customisation. Kindof like geento style (pacman+portage). Once the packages are build, install then the normal way with pacman
 
-## Usage:
-Add a new entry to the `/etc/pacman.conf` with the output path of *pacage*, should be before `[core]` and `[extra]`:
+**No need for root**.
+
+## Usage
+Add a new entry to the `/etc/pacman.conf` with the output path of *pacage*, should be before `[core]` and `[extra]`.
+**/etc/pacman.conf**:
 ```
 [...]
 
@@ -12,12 +15,53 @@ Server = file://<SERVER_DIR>
 
 [...]
 ```
+## Configuration
+
+### CLI interface
+```bash
+$> pacage --help
+Usage: pacage [OPTIONS]
+
+Options:
+  -c <CONFFILE>        where to load conf from, default is <DEFAULT>
+      --force-rebuild  Rebuild packages even if there is no new versions
+      --skip-download  Only build package that have been previously downloaded
+  -h, --help           Print help
+  -V, --version        Print version
+```
+
+### Conf file
+```toml
+container_runner = "podman"         # could be docker, podman-remote ...
+server_dir = "/pacage"              # which directory it will operate in, download packages, pacman database...
+host_server_dir = "/volumes/pacage" # Optional, real server_dir location, if running inside a container and using podman-remote for example, default: <server_dir>
+build_log_dir = "/pacage/log"       # default: none
+
+packages = [
+  "ccache",
+  "base",
+  "linux"
+  # List of the packages to compile
+]
+
+# man 5 makepkg.conf
+[makepkg]
+packager = "user <user@local.localhost>"
+cflags = "-march=native -O2 --param=l1-cache-size=32 --param=l2-cache-size=512"
+cxxflags = "-march=native -O2 --param=l1-cache-size=32 --param=l2-cache-size=512"
+ltoflags = "-flto=auto"
+ccache = true # Replace BUILD_ENV with BUILDENV=(!distcc color ccache check !sign), default: false
+
+```
 
 ## Server dir
 ```bash
 ├ pkgs/                # Packages sources dirs
 │ ├ some_package/
 │ └ [..]
+│
+├ cache/               # ccache dir
+│
 ├ pacage_build.sh
 ├ pacage.db@ -> pacage.db.tar.gz
 ├ pacage.db.tar.gz
@@ -29,14 +73,9 @@ Server = file://<SERVER_DIR>
 ```
 
 # TODOS:
-- [x] Parse conf
-- [x] Downloads listed pkgs
-- [x] Compile downloaded pkgs
-- [x] Command::output() merge stdout/stderr
-- [x] Handle errors
 - [ ] Daemon mod
-- [x] Logger and build logs
-- [x] Build flags
-- [ ] PKGBUILD flags `groups=('pacage')`
+- [ ] PKGBUILD flags `groups=('pacage')` # need doc
 - [ ] Keep build files
-- [x] Container run / Container exec ala cross-rs
+- [ ] Test some big packages (base, base-devel, chromium, firefox)
+- [ ] Keep statistics (sled)
+- [ ] Really basic http stats webpage

@@ -20,7 +20,6 @@ const BUILD_SCRIPT_CONTENT: &str = std::include_str!("../resources/build_pkg.sh"
 const BUILD_SCRIPT_FILE: &str = "pacage_build.sh";
 
 fn find_package(conf: &Conf, name: &str) -> Option<String> {
-    // TODO: symlink instead?
     let dir = match fs::read_dir(conf.pkg_dir(name)) {
         Ok(d) => d,
         Err(e) => {
@@ -44,7 +43,6 @@ fn find_package(conf: &Conf, name: &str) -> Option<String> {
     None
 }
 
-// aerc-0.16.0-1-x86_64.pkg.tar.zst
 fn repo_add(conf: &Conf, to_build: Vec<&str>) {
     if to_build.is_empty() {
         info!("Nothing to add");
@@ -90,14 +88,16 @@ fn to_string<T: std::string::ToString>(e: T) -> String {
 
 fn init(args: &Args) -> Result<Conf, String> {
     env_logger::builder().filter_level(LevelFilter::Info).init();
-    let conf = Conf::new(args.conf.as_deref()).map_err(to_string)?;
+    let conf = Conf::new(args.conffile.as_deref()).map_err(to_string)?;
     conf.print();
     create_dir_all(&conf.server_dir).map_err(to_string)?;
     let pkgs_dir = conf.server_dir.join("pkgs");
     create_dir_all(&pkgs_dir).map_err(to_string)?;
-    info!("BUILDL LGO DIR: {:?}", conf.build_log_dir);
     if let Some(build_log_dir) = &conf.build_log_dir {
         create_dir_all(build_log_dir).map_err(to_string)?;
+    }
+    if conf.makepkg.ccache.is_some_and(|a| a) {
+        create_dir_all(conf.server_dir.join("cache")).map_err(to_string)?;
     }
     fs::write(
         Path::new(&conf.server_dir).join("makepkg.conf"),
@@ -127,17 +127,18 @@ fn main() {
     let to_build = if !args.skip_download {
         download::download_all(&conf, args.force_rebuild)
     } else {
-        // Not nice
+        // Only packages present on the file system
         conf.packages
             .iter()
+            .filter(|p| conf.pkg_dir(p).exists())
             .map(|a| a.as_str())
             .collect::<Vec<&str>>()
     };
     info!("Building packages...");
     match build::build(&conf, to_build) {
-        Ok(builded) => {
+        Ok(built) => {
             info!("Adding packages...");
-            repo_add(&conf, builded);
+            repo_add(&conf, built);
         }
         Err(e) => {
             error!("Failed to build packages: {}", e);

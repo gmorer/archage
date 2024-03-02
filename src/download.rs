@@ -22,8 +22,6 @@ pub enum DownloadError {
 
 // Should return a list of packages to build
 
-// TODO split ito smaller fn
-
 const PARALLEL_DOWNLOAD: usize = 5;
 
 fn download_pkg(conf: &Conf, pkg: &str) -> Result<(), DownloadError> {

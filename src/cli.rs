@@ -5,7 +5,7 @@ use clap::Parser;
 pub struct Args {
     /// where to load conf from, default is <DEFAULT>
     #[arg(short)]
-    pub conf: Option<String>,
+    pub conffile: Option<String>,
 
     /// Rebuild packages even if there is no new versions
     #[arg(long)]

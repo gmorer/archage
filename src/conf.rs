@@ -21,6 +21,7 @@ fn default_server() -> PathBuf {
 
 #[derive(Deserialize, Debug, Default)]
 pub struct Conf {
+    pub container_runner: String,
     #[serde(default = "default_server")]
     pub server_dir: PathBuf,
 
@@ -31,7 +32,6 @@ pub struct Conf {
     // TODO: container_runner: (podman, docker...)
     pub makepkg: Makepkg,
 
-    // TODO
     pub build_log_dir: Option<PathBuf>,
 }
 
@@ -44,6 +44,7 @@ pub struct Makepkg {
     makeflags: Option<String>,
     ldflags: Option<String>,
     ltoflags: Option<String>,
+    pub ccache: Option<bool>,
 }
 
 impl Makepkg {
@@ -71,6 +72,9 @@ impl Makepkg {
         }
         if let Some(ltoflags) = &self.ltoflags {
             file.push_str(&format!("LTOFLAGS=\"{}\"\n", ltoflags));
+        }
+        if self.ccache.is_some_and(|a| a) {
+            file.push_str("BUILDENV=(!distcc color ccache check !sign)");
         }
         Ok(file)
     }
