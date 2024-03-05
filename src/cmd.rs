@@ -24,11 +24,25 @@ impl std::fmt::Display for CmdError {
         write!(f, "{:?}", self.e)
     }
 }
+
 impl std::error::Error for CmdError {}
 
 impl CmdError {
     pub fn from_output(out: Vec<String>) -> Self {
         Self { e: out }
+    }
+}
+
+// Write last lines from an outputs to the logs
+pub fn write_last_lines(lines: &[String], n: u32) {
+    let length = lines.len() as u32;
+    for i in n..0 {
+        if i > length {
+            continue;
+        }
+        if let Some(line) = lines.get((length - i) as usize) {
+            error!("---- {}", line);
+        }
     }
 }
 
@@ -74,7 +88,7 @@ pub fn command(mut cmd: Command) -> Result<(ExitStatus, Vec<String>), ExecError>
             } else if events[ev].data() == 1 {
                 (stderr.as_fd(), stderr_fd, &mut stderr_buffer)
             } else {
-                error!("Should no tbe possible");
+                error!("Should not be possible");
                 continue;
             };
             if events[ev].events().contains(EpollFlags::EPOLLHUP) {

@@ -1,8 +1,6 @@
 use serde::Deserialize;
 use std::fs::read_to_string;
 use std::path::PathBuf;
-use std::string::String;
-use std::vec::Vec;
 use thiserror::Error;
 
 const DEFAULT_CONF_LOCATION: &str = "/etc/pacage/conf.toml";

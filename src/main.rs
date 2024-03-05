@@ -12,6 +12,8 @@ use cmd::command;
 pub mod cli;
 use cli::Args;
 
+use crate::cmd::write_last_lines;
+
 pub mod build;
 
 mod download;
@@ -70,7 +72,8 @@ fn repo_add(conf: &Conf, to_build: Vec<&str>) {
             match command(cmd) {
                 Ok((status, _)) if status.success() => {}
                 Ok((_, out)) => {
-                    error!("[{}] Failed to add the package to the db: {:?}", pkg, out);
+                    error!("[{}] Failed to add the package to the db ->", pkg);
+                    write_last_lines(&out, 5);
                 }
                 Err(e) => {
                     error!("[{}] Failed to add to the db: {}", pkg, e);
@@ -82,33 +85,33 @@ fn repo_add(conf: &Conf, to_build: Vec<&str>) {
     }
 }
 
-fn to_string<T: std::string::ToString>(e: T) -> String {
-    e.to_string()
-}
-
 fn init(args: &Args) -> Result<Conf, String> {
     env_logger::builder().filter_level(LevelFilter::Info).init();
-    let conf = Conf::new(args.conffile.as_deref()).map_err(to_string)?;
+    let conf =
+        Conf::new(args.conffile.as_deref()).map_err(|e| format!("Failed to create conf: {}", e))?;
     conf.print();
-    create_dir_all(&conf.server_dir).map_err(to_string)?;
+    create_dir_all(&conf.server_dir).map_err(|e| format!("Failed to create server dir: {}", e))?;
     let pkgs_dir = conf.server_dir.join("pkgs");
-    create_dir_all(&pkgs_dir).map_err(to_string)?;
+    create_dir_all(&pkgs_dir).map_err(|e| format!("Failed to create pkgs dir: {}", e))?;
     if let Some(build_log_dir) = &conf.build_log_dir {
-        create_dir_all(build_log_dir).map_err(to_string)?;
+        create_dir_all(build_log_dir).map_err(|e| format!("Failed to create log dir: {}", e))?;
     }
     if conf.makepkg.ccache.is_some_and(|a| a) {
-        create_dir_all(conf.server_dir.join("cache")).map_err(to_string)?;
+        create_dir_all(conf.server_dir.join("cache"))
+            .map_err(|e| format!("Failed to create ccache dir: {}", e))?;
     }
     fs::write(
         Path::new(&conf.server_dir).join("makepkg.conf"),
-        conf.makepkg.to_file().map_err(to_string)?,
+        conf.makepkg
+            .to_file()
+            .map_err(|e| format!("Failed to generate makepkg.conf: {}", e))?,
     )
-    .map_err(to_string)?;
+    .map_err(|e| format!("Failed to write makepkg.conf: {}", e))?;
     fs::write(
         Path::new(&conf.server_dir).join(BUILD_SCRIPT_FILE),
         BUILD_SCRIPT_CONTENT,
     )
-    .map_err(to_string)?;
+    .map_err(|e| format!("Failed to write build script: {}", e))?;
     Ok(conf)
 }
 

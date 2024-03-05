@@ -6,7 +6,7 @@ use std::process::Command;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
-use crate::cmd::{command, CmdError, ExecError};
+use crate::cmd::{command, write_last_lines, CmdError, ExecError};
 use crate::{Conf, BUILD_SCRIPT_FILE};
 
 #[derive(Debug, Error)]
@@ -54,7 +54,7 @@ pub fn out_to_file(
     pkg: &str,
     out: &Vec<String>,
     success: bool,
-) -> Result<(), io::Error> {
+) -> Result<Option<String>, io::Error> {
     if let Some(build_log_dir) = &conf.build_log_dir {
         let ts = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -66,14 +66,16 @@ pub fn out_to_file(
             if success { "SUCCESS" } else { "ERROR" },
             ts
         ));
-        let file = File::create(path)?;
+        let file = File::create(&path)?;
         let mut writer = BufWriter::new(file);
         for line in out {
             writer.write(line.as_bytes())?;
             writer.write(b"\n")?;
         }
+        Ok(path.to_str().map(ToString::to_string))
+    } else {
+        Ok(None)
     }
-    Ok(())
 }
 
 pub fn build_pkg(conf: &Conf, pkg: &str) -> Result<(), BuildError> {
@@ -90,21 +92,23 @@ pub fn build_pkg(conf: &Conf, pkg: &str) -> Result<(), BuildError> {
         pkg,
     ]);
     let (status, out) = command(pkg_cmd)?;
-    if let Err(e) = out_to_file(conf, pkg, &out, status.success()) {
-        error!("[{}] Failed to write output to logs: {}", pkg, e);
+    match out_to_file(conf, pkg, &out, status.success()) {
+        Ok(Some(file)) => info!("[{}] Build logs writed to {}", pkg, file),
+        Ok(None) => {}
+        Err(e) => error!("[{}] Failed to write output to logs: {}", pkg, e),
     }
     let elapsed = start.elapsed();
     if !status.success() {
         error!(
-            "[{}] Failed to build in {} : {:?}",
+            "[{}] Failed to build in {} ->",
             pkg,
-            DurationPrinter(elapsed),
-            out
+            DurationPrinter(elapsed)
         );
-        Ok(())
+        write_last_lines(&out, 5);
+        Err(CmdError::from_output(out))?
     } else {
         info!("[{}] Build sucessfull in {}", pkg, DurationPrinter(elapsed));
-        Err(CmdError::from_output(out))?
+        Ok(())
     }
 }
 
@@ -167,7 +171,8 @@ pub fn build<'a>(conf: &'a Conf, pkgs: Vec<&'a str>) -> Result<Vec<&'a str>, Bui
         .args(["stop", CONTAINER_NAME]);
     let (status, out) = command(stop_cmd)?;
     if !status.success() {
-        error!("Failed to stop builder: {:?}", out);
+        error!("Failed to stop builder ->");
+        write_last_lines(&out, 5);
     }
 
     Ok(built)

@@ -8,3 +8,4 @@ packages = [
 packager = "SuperBuilder <builder@pacage.com>"
 cflags = "-march=native -O3"
 cxxflags = "-march=native -O3"
+makeflags = "-j$(nproc)"
