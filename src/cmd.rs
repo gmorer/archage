@@ -36,7 +36,8 @@ impl CmdError {
 // Write last lines from an outputs to the logs
 pub fn write_last_lines(lines: &[String], n: u32) {
     let length = lines.len() as u32;
-    for i in n..0 {
+    for i in 0..n {
+        let i = n - i;
         if i > length {
             continue;
         }

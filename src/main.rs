@@ -13,6 +13,7 @@ pub mod cli;
 use cli::Args;
 
 use crate::cmd::write_last_lines;
+use crate::conf::Package;
 
 pub mod build;
 
@@ -21,6 +22,7 @@ mod download;
 const BUILD_SCRIPT_CONTENT: &str = std::include_str!("../resources/build_pkg.sh");
 const BUILD_SCRIPT_FILE: &str = "pacage_build.sh";
 
+// makepkg --packagelist
 fn find_package(conf: &Conf, name: &str) -> Option<String> {
     let dir = match fs::read_dir(conf.pkg_dir(name)) {
         Ok(d) => d,
@@ -45,21 +47,22 @@ fn find_package(conf: &Conf, name: &str) -> Option<String> {
     None
 }
 
-fn repo_add(conf: &Conf, to_build: Vec<&str>) {
+fn repo_add(conf: &Conf, to_build: Vec<&Package>) {
     if to_build.is_empty() {
         info!("Nothing to add");
         return;
     }
     let db = Path::new(&conf.server_dir).join("pacage.db.tar.gz");
     for pkg in to_build {
-        if let Some(package_file) = find_package(conf, &pkg) {
+        let name = &pkg.name;
+        if let Some(package_file) = find_package(conf, name) {
             // Move the package next to the db
             let moved_package_file = Path::new(&conf.server_dir).join(&package_file);
-            let orig_package_file = conf.pkg_dir(pkg).join(&package_file);
+            let orig_package_file = conf.pkg_dir(name).join(&package_file);
             if let Err(e) = std::fs::rename(&orig_package_file, &moved_package_file) {
                 error!(
                     "[{}] Failed to move {} to {}: {}",
-                    pkg,
+                    name,
                     orig_package_file.display(),
                     moved_package_file.display(),
                     e
@@ -72,15 +75,15 @@ fn repo_add(conf: &Conf, to_build: Vec<&str>) {
             match command(cmd) {
                 Ok((status, _)) if status.success() => {}
                 Ok((_, out)) => {
-                    error!("[{}] Failed to add the package to the db ->", pkg);
+                    error!("[{}] Failed to add the package to the db ->", name);
                     write_last_lines(&out, 5);
                 }
                 Err(e) => {
-                    error!("[{}] Failed to add to the db: {}", pkg, e);
+                    error!("[{}] Failed to add to the db: {}", name, e);
                 }
             };
         } else {
-            error!("[{}] Failed to find package file", pkg);
+            error!("[{}] Failed to find package file", name);
         }
     }
 }
@@ -93,20 +96,19 @@ fn init(args: &Args) -> Result<Conf, String> {
     create_dir_all(&conf.server_dir).map_err(|e| format!("Failed to create server dir: {}", e))?;
     let pkgs_dir = conf.server_dir.join("pkgs");
     create_dir_all(&pkgs_dir).map_err(|e| format!("Failed to create pkgs dir: {}", e))?;
+    let srcs_dir = conf.server_dir.join("srcs");
+    create_dir_all(&srcs_dir).map_err(|e| format!("Failed to create srcs dir: {}", e))?;
     if let Some(build_log_dir) = &conf.build_log_dir {
         create_dir_all(build_log_dir).map_err(|e| format!("Failed to create log dir: {}", e))?;
     }
+    create_dir_all(conf.server_dir.join("repo"))
+        .map_err(|e| format!("Failed to create repo dir: {}", e))?;
+    create_dir_all(conf.server_dir.join("cache").join("pacman"))
+        .map_err(|e| format!("Failed to create cache dir: {}", e))?;
     if conf.makepkg.ccache.is_some_and(|a| a) {
-        create_dir_all(conf.server_dir.join("cache"))
+        create_dir_all(conf.server_dir.join("cache").join("ccache"))
             .map_err(|e| format!("Failed to create ccache dir: {}", e))?;
     }
-    fs::write(
-        Path::new(&conf.server_dir).join("makepkg.conf"),
-        conf.makepkg
-            .to_file()
-            .map_err(|e| format!("Failed to generate makepkg.conf: {}", e))?,
-    )
-    .map_err(|e| format!("Failed to write makepkg.conf: {}", e))?;
     fs::write(
         Path::new(&conf.server_dir).join(BUILD_SCRIPT_FILE),
         BUILD_SCRIPT_CONTENT,
@@ -133,9 +135,8 @@ fn main() {
         // Only packages present on the file system
         conf.packages
             .iter()
-            .filter(|p| conf.pkg_dir(p).exists())
-            .map(|a| a.as_str())
-            .collect::<Vec<&str>>()
+            .filter(|p| conf.pkg_dir(&p.name).exists())
+            .collect::<Vec<&Package>>()
     };
     info!("Building packages...");
     match build::build(&conf, to_build) {

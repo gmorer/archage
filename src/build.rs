@@ -1,20 +1,24 @@
 use log::{error, info};
 use std::fmt::Display;
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{self, BufWriter, Write};
+use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
 use crate::cmd::{command, write_last_lines, CmdError, ExecError};
+use crate::conf::Package;
 use crate::{Conf, BUILD_SCRIPT_FILE};
 
 #[derive(Debug, Error)]
 pub enum BuildError {
     #[error("System error: {0}")]
     ExecError(#[from] ExecError),
-    #[error("IO error: {0}")]
+    #[error("Cmd error: {0}")]
     CmdError(#[from] CmdError),
+    #[error("IO error: {0}")]
+    IOError(#[from] io::Error),
 }
 
 // TODO: version
@@ -78,41 +82,50 @@ pub fn out_to_file(
     }
 }
 
-pub fn build_pkg(conf: &Conf, pkg: &str) -> Result<(), BuildError> {
+pub fn build_pkg(conf: &Conf, pkg: &Package) -> Result<(), BuildError> {
+    // Write specific makepkg
+    fs::write(
+        Path::new(&conf.server_dir).join("makepkg.conf"),
+        pkg.get_makepkg(&conf)?,
+    )?;
     let mut pkg_cmd = Command::new(&conf.container_runner);
     let start = Instant::now();
     pkg_cmd.current_dir(&conf.server_dir).args([
         "exec",
         "--workdir=/build",
         "--env=HOME=/tmp",
-        "--env=CCACHE_DIR=/build/cache",
+        "--env=CCACHE_DIR=/build/cache/ccache/",
         CONTAINER_NAME,
         "bash",
         &format!("/build/{}", BUILD_SCRIPT_FILE),
-        pkg,
+        &pkg.name,
     ]);
     let (status, out) = command(pkg_cmd)?;
-    match out_to_file(conf, pkg, &out, status.success()) {
-        Ok(Some(file)) => info!("[{}] Build logs writed to {}", pkg, file),
+    match out_to_file(conf, &pkg.name, &out, status.success()) {
+        Ok(Some(file)) => info!("[{}] Build logs writed to {}", pkg.name, file),
         Ok(None) => {}
-        Err(e) => error!("[{}] Failed to write output to logs: {}", pkg, e),
+        Err(e) => error!("[{}] Failed to write output to logs: {}", pkg.name, e),
     }
     let elapsed = start.elapsed();
     if !status.success() {
         error!(
             "[{}] Failed to build in {} ->",
-            pkg,
+            pkg.name,
             DurationPrinter(elapsed)
         );
-        write_last_lines(&out, 5);
+        write_last_lines(&out, 10);
         Err(CmdError::from_output(out))?
     } else {
-        info!("[{}] Build sucessfull in {}", pkg, DurationPrinter(elapsed));
+        info!(
+            "[{}] Build sucessfull in {}",
+            pkg.name,
+            DurationPrinter(elapsed)
+        );
         Ok(())
     }
 }
 
-pub fn build<'a>(conf: &'a Conf, pkgs: Vec<&'a str>) -> Result<Vec<&'a str>, BuildError> {
+pub fn build<'a>(conf: &'a Conf, pkgs: Vec<&'a Package>) -> Result<Vec<&'a Package>, BuildError> {
     let mut built = Vec::new();
     if pkgs.is_empty() {
         info!("Nothing to build");
@@ -159,7 +172,7 @@ pub fn build<'a>(conf: &'a Conf, pkgs: Vec<&'a str>) -> Result<Vec<&'a str>, Bui
         Err(CmdError::from_output(out))?;
     }
     for pkg in pkgs {
-        info!("[{}] Starting build...", pkg);
+        info!("[{}] Starting build...", pkg.name);
         if let Ok(()) = build_pkg(conf, pkg) {
             built.push(pkg);
         }
@@ -172,7 +185,7 @@ pub fn build<'a>(conf: &'a Conf, pkgs: Vec<&'a str>) -> Result<Vec<&'a str>, Bui
     let (status, out) = command(stop_cmd)?;
     if !status.success() {
         error!("Failed to stop builder ->");
-        write_last_lines(&out, 5);
+        write_last_lines(&out, 10);
     }
 
     Ok(built)

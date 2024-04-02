@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use crate::cmd::{command, CmdError, ExecError};
+use crate::conf::Package;
 use crate::Conf;
 use rayon::prelude::*;
 use thiserror::Error;
@@ -71,23 +72,23 @@ fn update_pkg(pkg: &str, pkg_dir: &PathBuf, force_rebuild: bool) -> Result<bool,
     }
 }
 
-pub fn download_all<'a>(conf: &'a Conf, force_rebuild: bool) -> Vec<&'a str> {
-    let mut to_build: Vec<&str> = Vec::new();
+pub fn download_all<'a>(conf: &'a Conf, force_rebuild: bool) -> Vec<&'a Package> {
+    let mut to_build: Vec<&Package> = Vec::new();
     conf.packages.chunks(PARALLEL_DOWNLOAD).for_each(|chunk| {
         info!("Downloading the following packages: {:?}", chunk);
         to_build.append(
             &mut chunk
                 .into_par_iter()
                 .filter_map(|pkg| {
-                    let pkg = pkg.as_str();
-                    let pkg_dir = conf.pkg_dir(pkg);
+                    let name = pkg.name.as_str();
+                    let pkg_dir = conf.pkg_dir(name);
                     let exist = pkg_dir.exists();
                     if exist && pkg_dir.join(".git").exists() && pkg_dir.join("PKGBUILD").exists() {
-                        match update_pkg(pkg, &pkg_dir, force_rebuild) {
+                        match update_pkg(name, &pkg_dir, force_rebuild) {
                             Ok(true) => Some(pkg),
                             Ok(false) => None,
                             Err(e) => {
-                                error!("[{}] Failed to update: {}", pkg, e);
+                                error!("[{}] Failed to update: {}", name, e);
                                 None
                             }
                         }
@@ -95,13 +96,13 @@ pub fn download_all<'a>(conf: &'a Conf, force_rebuild: bool) -> Vec<&'a str> {
                         if exist {
                             fs::remove_dir_all(pkg_dir).ok();
                         }
-                        match download_pkg(conf, pkg) {
+                        match download_pkg(conf, name) {
                             Ok(()) => Some(pkg),
                             Err(_) => None,
                         }
                     }
                 })
-                .collect::<Vec<&str>>(),
+                .collect::<Vec<&Package>>(),
         )
     });
     to_build

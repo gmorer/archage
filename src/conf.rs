@@ -18,6 +18,83 @@ fn default_server() -> PathBuf {
 }
 
 #[derive(Deserialize, Debug, Default)]
+pub struct Package {
+    pub name: String,
+    makepkg: Option<Makepkg>,
+}
+
+fn write_value(file: &mut String, key: &str, value: Option<&String>, def: Option<&String>) {
+    if let Some(v) = value.or(def) {
+        file.push_str(&format!("{}=\"{}\"\n", key, v));
+    }
+}
+
+impl Package {
+    pub fn get_makepkg(&self, conf: &Conf) -> Result<String, std::io::Error> {
+        let mut file = std::fs::read_to_string("/etc/makepkg.conf")?;
+        let def = &conf.makepkg;
+        let makepkg = self.makepkg.as_ref();
+        file.push('\n');
+        file.push_str(&format!("SRCDEST=/build/srcs/{}\n", self.name));
+        file.push_str(&format!("SRCPKGDEST==/build/srcs/{}\n", self.name));
+        // file.push_str(&format!("SRCDEST=/build/srcs/{}\n", self.name));
+        // file.push_str("PKGDEST=/build/repo/\n");
+        write_value(
+            &mut file,
+            "PACKAGER",
+            makepkg.map(|a| a.packager.as_ref()).flatten(),
+            def.packager.as_ref(),
+        );
+        write_value(
+            &mut file,
+            "MAKEFLAGS",
+            makepkg.map(|a| a.makeflags.as_ref()).flatten(),
+            def.makeflags.as_ref(),
+        );
+        write_value(
+            &mut file,
+            "CFLAGS",
+            makepkg.map(|a| a.cflags.as_ref()).flatten(),
+            def.cflags.as_ref(),
+        );
+        write_value(
+            &mut file,
+            "CXXFLAGS",
+            makepkg.map(|a| a.cxxflags.as_ref()).flatten(),
+            def.cxxflags.as_ref(),
+        );
+        write_value(
+            &mut file,
+            "RUSTFLAGS",
+            makepkg.map(|a| a.rustflags.as_ref()).flatten(),
+            def.rustflags.as_ref(),
+        );
+        write_value(
+            &mut file,
+            "LDFLAGS",
+            makepkg.map(|a| a.ldflags.as_ref()).flatten(),
+            def.ldflags.as_ref(),
+        );
+        write_value(
+            &mut file,
+            "LTOFLAGS",
+            makepkg.map(|a| a.ltoflags.as_ref()).flatten(),
+            def.ltoflags.as_ref(),
+        );
+        if self
+            .makepkg
+            .as_ref()
+            .map(|c| c.ccache)
+            .unwrap_or(def.ccache)
+            .is_some_and(|a| a)
+        {
+            file.push_str("BUILDENV=(!distcc color ccache check !sign)");
+        }
+        Ok(file)
+    }
+}
+
+#[derive(Deserialize, Debug, Default)]
 pub struct Conf {
     pub container_runner: String,
     #[serde(default = "default_server")]
@@ -26,7 +103,7 @@ pub struct Conf {
     // Server dir seen by the container runtime (ex. usage: podman-remote)
     pub host_server_dir: Option<PathBuf>,
 
-    pub packages: Vec<String>,
+    pub packages: Vec<Package>,
     // TODO: container_runner: (podman, docker...)
     pub makepkg: Makepkg,
 
@@ -45,38 +122,7 @@ pub struct Makepkg {
     pub ccache: Option<bool>,
 }
 
-impl Makepkg {
-    pub fn to_file(&self) -> Result<String, std::io::Error> {
-        let mut file = std::fs::read_to_string("/etc/makepkg.conf")?;
-        file.push('\n');
-        if let Some(packager) = &self.packager {
-            // TODO: verify packager name
-            file.push_str(&format!("PACKAGER=\"{}\"\n", packager));
-        }
-        if let Some(cflags) = &self.cflags {
-            file.push_str(&format!("CFLAGS=\"{}\"\n", cflags));
-        }
-        if let Some(cxxflags) = &self.cxxflags {
-            file.push_str(&format!("CXXFLAGS=\"{}\"\n", cxxflags));
-        }
-        if let Some(rustflags) = &self.rustflags {
-            file.push_str(&format!("RUSTFLAGS=\"{}\"\n", rustflags));
-        }
-        if let Some(makeflags) = &self.makeflags {
-            file.push_str(&format!("MAKEFLAGS=\"{}\"\n", makeflags));
-        }
-        if let Some(ldflags) = &self.ldflags {
-            file.push_str(&format!("LDFLAGS=\"{}\"\n", ldflags));
-        }
-        if let Some(ltoflags) = &self.ltoflags {
-            file.push_str(&format!("LTOFLAGS=\"{}\"\n", ltoflags));
-        }
-        if self.ccache.is_some_and(|a| a) {
-            file.push_str("BUILDENV=(!distcc color ccache check !sign)");
-        }
-        Ok(file)
-    }
-}
+impl Makepkg {}
 
 impl Conf {
     pub fn new(conf_file: Option<&str>) -> Result<Self, ConfError> {

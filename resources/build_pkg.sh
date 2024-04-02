@@ -23,26 +23,36 @@ set_perm() {
 build_pkg() (
   function cleanup() {
     echo "Cleaning up build directory"
-    chown -R root:root . $CCACHE_DIR
+    # chown -R root:root . $CCACHE_DIR /build/srcs
+    chown -R root:root /build
   }
+  local pkg=$1
 
   trap cleanup EXIT
 
   source PKGBUILD
-  yes | pacman -Syu --noconfirm ${depends[@]} ${makedepends[@]} ccache ||
+  yes | pacman -Syu --cachedir /build/cache/pacman --noconfirm ${depends[@]} ${makedepends[@]} ccache mold ||
 
   # Getting "Operation not permitted" otherwise
   set_perm "/usr/sbin"
 
-  chown -R builder:builder . $CCACHE_DIR
+  chown -R builder:builder . $CCACHE_DIR /build/srcs
+  rm -rf /build/srcs/$pkg
   # Skip pgp because it fail on the ccache pkg.
-  runuser -u builder -m -- makepkg -c -f --skippgpcheck --config /build/makepkg.conf
+  runuser -u builder -m -- makepkg -f -c --skippgpcheck --config /build/makepkg.conf --nobuild
+  chown -R root:root /build/srcs 
+  chown -R builder:builder /build/srcs/$pkg
+  pkgdest=$(mktemp -d)
+  chown -R builder:builder $pkgdest
+  PKGDEST=$pkgdest runuser -u builder -m -- makepkg -f --skippgpcheck --config /build/makepkg.conf --noextract
+  # chown -R root:root $pkgdest
+  mv $pkgdest/* /build/repo
   runuser -u builder -- makepkg --printsrcinfo > .SRCINFO
   ccache -s
 )
 
 for pkg in $@; do
   pushd pkgs/$pkg
-  build_pkg $pkgbuild
+  build_pkg $pkg
   popd
 done

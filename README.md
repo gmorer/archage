@@ -39,7 +39,6 @@ build_log_dir = "/pacage/log"       # default: none
 
 packages = [
   "ccache",
-  "base",
   "linux"
   # List of the packages to compile
 ]
@@ -56,18 +55,27 @@ ccache = true # Replace BUILD_ENV with BUILDENV=(!distcc color ccache check !sig
 
 ## Server dir
 ```bash
-├ pkgs/                # Packages sources dirs
+├ pkgs/                # Packages pkgbuild
 │ ├ some_package/
 │ └ [..]
 │
 ├ cache/               # ccache dir
+│ ├ ccache/
+│ └ pacman/
 │
-├ pacage_build.sh
-├ pacage.db@ -> pacage.db.tar.gz
-├ pacage.db.tar.gz
-├ pacage.files@ -> pacage.files.tar.gz
-├ pacage.files.tar.gz
-├ some_package-0.16.0-1-x86_64.pkg.tar.zst
+├ src/                 # package source dir
+│ ├ some_package/
+│ └ [..]
+│
+├ repo/
+│ ├ some_package/
+│ ├ pacage_build.sh
+│ ├ pacage.db@ -> pacage.db.tar.gz
+│ ├ pacage.db.tar.gz
+│ ├ pacage.files@ -> pacage.files.tar.gz
+│ ├ pacage.files.tar.gz
+│ ├ some_package-0.16.0-1-x86_64.pkg.tar.zst
+│ └ [..]
 └ [..]
 
 ```
@@ -76,6 +84,11 @@ ccache = true # Replace BUILD_ENV with BUILDENV=(!distcc color ccache check !sig
 - [ ] Daemon mod
 - [ ] PKGBUILD flags `groups=('pacage')` # need doc
 - [ ] Keep build files
+- [ ] Patch
+- [ ] pacman cache
 - [ ] Test some big packages (base, base-devel, chromium, firefox)
 - [ ] Keep statistics (sled)
 - [ ] Really basic http stats webpage
+- [ ] Get max ram usage (podman-stats)
+- [x] Per package makepkg kinda like Cargo.toml
+- [ ] groups (base)
