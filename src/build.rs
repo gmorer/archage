@@ -82,11 +82,11 @@ pub fn out_to_file(
     }
 }
 
-pub fn build_pkg(conf: &Conf, pkg: &Package) -> Result<(), BuildError> {
+pub fn build_pkg(conf: &Conf, name: &String, pkg: &Package) -> Result<(), BuildError> {
     // Write specific makepkg
     fs::write(
         Path::new(&conf.server_dir).join("makepkg.conf"),
-        pkg.get_makepkg(&conf)?,
+        pkg.get_makepkg(&conf, name)?,
     )?;
     let mut pkg_cmd = Command::new(&conf.container_runner);
     let start = Instant::now();
@@ -98,19 +98,19 @@ pub fn build_pkg(conf: &Conf, pkg: &Package) -> Result<(), BuildError> {
         CONTAINER_NAME,
         "bash",
         &format!("/build/{}", BUILD_SCRIPT_FILE),
-        &pkg.name,
+        name,
     ]);
     let (status, out) = command(pkg_cmd)?;
-    match out_to_file(conf, &pkg.name, &out, status.success()) {
-        Ok(Some(file)) => info!("[{}] Build logs writed to {}", pkg.name, file),
+    match out_to_file(conf, name, &out, status.success()) {
+        Ok(Some(file)) => info!("[{}] Build logs writed to {}", name, file),
         Ok(None) => {}
-        Err(e) => error!("[{}] Failed to write output to logs: {}", pkg.name, e),
+        Err(e) => error!("[{}] Failed to write output to logs: {}", name, e),
     }
     let elapsed = start.elapsed();
     if !status.success() {
         error!(
             "[{}] Failed to build in {} ->",
-            pkg.name,
+            name,
             DurationPrinter(elapsed)
         );
         write_last_lines(&out, 10);
@@ -118,14 +118,17 @@ pub fn build_pkg(conf: &Conf, pkg: &Package) -> Result<(), BuildError> {
     } else {
         info!(
             "[{}] Build sucessfull in {}",
-            pkg.name,
+            name,
             DurationPrinter(elapsed)
         );
         Ok(())
     }
 }
 
-pub fn build<'a>(conf: &'a Conf, pkgs: Vec<&'a Package>) -> Result<Vec<&'a Package>, BuildError> {
+pub fn build<'a>(
+    conf: &'a Conf,
+    pkgs: Vec<(&'a String, &'a Package)>,
+) -> Result<Vec<&'a String>, BuildError> {
     let mut built = Vec::new();
     if pkgs.is_empty() {
         info!("Nothing to build");
@@ -171,10 +174,10 @@ pub fn build<'a>(conf: &'a Conf, pkgs: Vec<&'a Package>) -> Result<Vec<&'a Packa
         error!("Fail to spawn builder");
         Err(CmdError::from_output(out))?;
     }
-    for pkg in pkgs {
-        info!("[{}] Starting build...", pkg.name);
-        if let Ok(()) = build_pkg(conf, pkg) {
-            built.push(pkg);
+    for (name, pkg) in pkgs {
+        info!("[{}] Starting build...", name);
+        if let Ok(()) = build_pkg(conf, name, pkg) {
+            built.push(name);
         }
     }
 

@@ -14,6 +14,10 @@ pub struct Args {
     /// Only build package that have been previously downloaded
     #[arg(long)]
     pub skip_download: bool,
+
+    /// List build packages
+    #[arg(long)]
+    pub list_pkgs: bool,
 }
 
 impl Args {

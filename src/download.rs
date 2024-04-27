@@ -6,7 +6,7 @@ use std::process::Command;
 use crate::cmd::{command, CmdError, ExecError};
 use crate::conf::Package;
 use crate::Conf;
-use rayon::prelude::*;
+// use rayon::prelude::*;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -23,7 +23,7 @@ pub enum DownloadError {
 
 // Should return a list of packages to build
 
-const PARALLEL_DOWNLOAD: usize = 5;
+// const PARALLEL_DOWNLOAD: usize = 5;
 
 fn download_pkg(conf: &Conf, pkg: &str) -> Result<(), DownloadError> {
     let pkgs_dir = conf.server_dir.join("pkgs");
@@ -72,38 +72,40 @@ fn update_pkg(pkg: &str, pkg_dir: &PathBuf, force_rebuild: bool) -> Result<bool,
     }
 }
 
-pub fn download_all<'a>(conf: &'a Conf, force_rebuild: bool) -> Vec<&'a Package> {
-    let mut to_build: Vec<&Package> = Vec::new();
-    conf.packages.chunks(PARALLEL_DOWNLOAD).for_each(|chunk| {
-        info!("Downloading the following packages: {:?}", chunk);
-        to_build.append(
-            &mut chunk
-                .into_par_iter()
-                .filter_map(|pkg| {
-                    let name = pkg.name.as_str();
-                    let pkg_dir = conf.pkg_dir(name);
-                    let exist = pkg_dir.exists();
-                    if exist && pkg_dir.join(".git").exists() && pkg_dir.join("PKGBUILD").exists() {
-                        match update_pkg(name, &pkg_dir, force_rebuild) {
-                            Ok(true) => Some(pkg),
-                            Ok(false) => None,
-                            Err(e) => {
-                                error!("[{}] Failed to update: {}", name, e);
-                                None
-                            }
-                        }
-                    } else {
-                        if exist {
-                            fs::remove_dir_all(pkg_dir).ok();
-                        }
-                        match download_pkg(conf, name) {
-                            Ok(()) => Some(pkg),
-                            Err(_) => None,
-                        }
+pub fn download_all<'a>(conf: &'a Conf, force_rebuild: bool) -> Vec<(&'a String, &'a Package)> {
+    let mut to_build: Vec<(&String, &Package)> = Vec::new();
+    conf.packages
+        .iter()
+        // .chunks(PARALLEL_DOWNLOAD)
+        .for_each(|(name, pkg)| {
+            info!("Downloading the following package: {:?}", name);
+            // to_build.append(
+            // &mut chunk
+            // .into_par_iter()
+            // .filter_map(|pkg| {
+            // let name = pkg.name.as_str();
+            let pkg_dir = conf.pkg_dir(name);
+            let exist = pkg_dir.exists();
+            if exist && pkg_dir.join(".git").exists() && pkg_dir.join("PKGBUILD").exists() {
+                match update_pkg(name, &pkg_dir, force_rebuild) {
+                    Ok(true) => to_build.push((name, pkg)),
+                    Ok(false) => {}
+                    Err(e) => {
+                        error!("[{}] Failed to update: {}", name, e);
                     }
-                })
-                .collect::<Vec<&Package>>(),
-        )
-    });
+                }
+            } else {
+                if exist {
+                    fs::remove_dir_all(pkg_dir).ok();
+                }
+                match download_pkg(conf, name) {
+                    Ok(()) => to_build.push((name, pkg)),
+                    Err(_) => {}
+                }
+            }
+            // })
+            // .collect::<Vec<&Package>>(),
+            // )
+        });
     to_build
 }
