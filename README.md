@@ -37,12 +37,6 @@ server_dir = "/pacage"              # which directory it will operate in, downlo
 host_server_dir = "/volumes/pacage" # Optional, real server_dir location, if running inside a container and using podman-remote for example, default: <server_dir>
 build_log_dir = "/pacage/log"       # default: none
 
-packages = [
-  "ccache",
-  "linux"
-  # List of the packages to compile
-]
-
 # man 5 makepkg.conf
 [makepkg]
 packager = "user <user@local.localhost>"
@@ -50,6 +44,13 @@ cflags = "-march=native -O2 --param=l1-cache-size=32 --param=l2-cache-size=512"
 cxxflags = "-march=native -O2 --param=l1-cache-size=32 --param=l2-cache-size=512"
 ltoflags = "-flto=auto"
 ccache = true # Replace BUILD_ENV with BUILDENV=(!distcc color ccache check !sign), default: false
+
+# List of the packages to compile
+[vi]
+[vi.makepkg]
+ccache = false
+
+[linux]
 
 ```
 

@@ -6,10 +6,19 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::Command;
 use tar::Archive;
+use thiserror::Error;
 
 use crate::cmd::command;
 use crate::cmd::write_last_lines;
 use crate::conf::Conf;
+
+#[derive(Debug, Error)]
+pub enum RepoError {
+    #[error("Missing repo database")]
+    NoRepo,
+    #[error("System error: {0}")]
+    Io(#[from] std::io::Error),
+}
 
 pub struct DbPackage {
     name: String,
@@ -163,12 +172,12 @@ pub fn add(conf: &Conf, to_build: Vec<&String>) {
     }
 }
 
-pub fn list(conf: &Conf) -> Vec<DbPackage> {
+pub fn list(conf: &Conf) -> Result<Vec<DbPackage>, RepoError> {
     let mut pkgs = Vec::new();
-    let tar_gz = File::open(conf.get_repo()).unwrap();
+    let tar_gz = File::open(conf.get_repo()).map_err(|_| RepoError::NoRepo)?;
     let tar = GzDecoder::new(tar_gz);
     let mut archive = Archive::new(tar);
-    for entry in archive.entries().unwrap() {
+    for entry in archive.entries()? {
         if let Ok(entry) = entry {
             if let Ok(path) = entry.path() {
                 if path
@@ -180,5 +189,5 @@ pub fn list(conf: &Conf) -> Vec<DbPackage> {
             }
         }
     }
-    pkgs
+    Ok(pkgs)
 }

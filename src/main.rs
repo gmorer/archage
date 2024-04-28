@@ -66,8 +66,15 @@ fn main() {
     };
 
     if args.list_pkgs {
-        for pkg in repo::list(&conf) {
-            pkg.print()
+        match repo::list(&conf) {
+            Ok(l) => {
+                for p in l {
+                    p.print();
+                }
+            }
+            Err(e) => {
+                eprintln!("{}", e.to_string());
+            }
         }
         return;
     }

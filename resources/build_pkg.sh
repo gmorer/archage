@@ -51,7 +51,7 @@ build_pkg() (
   # chown -R builder:builder /build/srcs/$pkg
   pkgdest=$(mktemp -d)
   chown -R builder:builder $pkgdest
-  PKGDEST=$pkgdest runuser -u builder -m -- makepkg -f --skippgpcheck --config /build/makepkg.conf --noextract -c
+  PKGDEST=$pkgdest runuser -u builder -m -- makepkg -f --skippgpcheck --config /build/makepkg.conf --noextract
   # chown -R root:root $pkgdest
   mv $pkgdest/* /build/repo
   runuser -u builder -- makepkg --printsrcinfo > .SRCINFO
