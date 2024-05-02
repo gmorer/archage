@@ -204,8 +204,9 @@ impl Conf {
     }
 
     pub fn get_repo(&self) -> PathBuf {
-        let mut path = self.server_dir.clone();
-        path.push("pacage.db.tar.gz");
-        path
+        self.server_dir
+            .clone()
+            .join("repo")
+            .join("pacage.db.tar.gz")
     }
 }

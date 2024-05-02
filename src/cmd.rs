@@ -1,8 +1,8 @@
 use log::{debug, error};
 use nix::sys::epoll::{Epoll, EpollCreateFlags, EpollEvent, EpollFlags};
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
-use std::os::fd::AsFd;
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsFd, AsRawFd};
+use std::path::Path;
 use std::process::{Command, ExitStatus, Stdio};
 use thiserror::Error;
 
@@ -48,7 +48,7 @@ pub fn write_last_lines(lines: &[String], n: u32) {
 }
 
 // Kindof like combined output of go/exec
-pub fn command(mut cmd: Command) -> Result<(ExitStatus, Vec<String>), ExecError> {
+fn _command(mut cmd: Command) -> Result<(ExitStatus, Vec<String>), ExecError> {
     let mut output = Vec::new();
     let mut child = cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
 
@@ -116,4 +116,15 @@ pub fn command(mut cmd: Command) -> Result<(ExitStatus, Vec<String>), ExecError>
         }
     };
     Ok((status, output))
+}
+
+pub fn command<P>(args: &[&str], current_dir: P) -> Result<(ExitStatus, Vec<String>), ExecError>
+where
+    P: AsRef<Path>,
+{
+    assert!(args.len() > 0);
+    let mut cmd = Command::new(args[0]);
+    cmd.args(&args[1..]);
+    cmd.current_dir(current_dir);
+    _command(cmd)
 }

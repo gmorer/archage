@@ -3,7 +3,6 @@ use std::fmt::Display;
 use std::fs::{self, File};
 use std::io::{self, BufWriter, Write};
 use std::path::Path;
-use std::process::Command;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
@@ -56,6 +55,7 @@ impl Display for DurationPrinter {
 pub fn out_to_file(
     conf: &Conf,
     pkg: &str,
+    action: &str,
     out: &Vec<String>,
     success: bool,
 ) -> Result<Option<String>, io::Error> {
@@ -65,8 +65,9 @@ pub fn out_to_file(
             .unwrap()
             .as_secs();
         let path = build_log_dir.join(format!(
-            "{}_{}_{}.log",
+            "{}_{}_{}_{}.log",
             pkg,
+            action,
             if success { "SUCCESS" } else { "ERROR" },
             ts
         ));
@@ -83,25 +84,56 @@ pub fn out_to_file(
 }
 
 pub fn build_pkg(conf: &Conf, name: &String, pkg: &Package) -> Result<(), BuildError> {
-    // Write specific makepkg
+    // makepkg get sources
+    // patch
     fs::write(
         Path::new(&conf.server_dir).join("makepkg.conf"),
         pkg.get_makepkg(&conf, name)?,
     )?;
-    let mut pkg_cmd = Command::new(&conf.container_runner);
     let start = Instant::now();
-    pkg_cmd.current_dir(&conf.server_dir).args([
-        "exec",
-        "--workdir=/build",
-        "--env=HOME=/tmp",
-        "--env=CCACHE_DIR=/build/cache/ccache/",
-        CONTAINER_NAME,
-        "bash",
-        &format!("/build/{}", BUILD_SCRIPT_FILE),
-        name,
-    ]);
-    let (status, out) = command(pkg_cmd)?;
-    match out_to_file(conf, name, &out, status.success()) {
+    info!("[{}] Downloading the sources...", name);
+    let (status, out) = command(
+        &[
+            &conf.container_runner,
+            "exec",
+            "--workdir=/build",
+            "--env=HOME=/tmp",
+            "--env=CCACHE_DIR=/build/cache/ccache/",
+            CONTAINER_NAME,
+            "bash",
+            &format!("/build/{}", BUILD_SCRIPT_FILE),
+            "get",
+            name,
+        ],
+        &conf.server_dir,
+    )?;
+    match out_to_file(conf, name, "get", &out, status.success()) {
+        Ok(Some(file)) => info!("[{}] Get logs writed to {}", name, file),
+        Ok(None) => {}
+        Err(e) => error!("[{}] Failed to write output to logs: {}", name, e),
+    }
+    if !status.success() {
+        error!("[{}] Failed to get sources ", name,);
+        write_last_lines(&out, 10);
+        Err(CmdError::from_output(out))?
+    }
+    info!("[{}] Building/packaging the sources...", name);
+    let (status, out) = command(
+        &[
+            &conf.container_runner,
+            "exec",
+            "--workdir=/build",
+            "--env=HOME=/tmp",
+            "--env=CCACHE_DIR=/build/cache/ccache/",
+            CONTAINER_NAME,
+            "bash",
+            &format!("/build/{}", BUILD_SCRIPT_FILE),
+            "build",
+            name,
+        ],
+        &conf.server_dir,
+    )?;
+    match out_to_file(conf, name, "build", &out, status.success()) {
         Ok(Some(file)) => info!("[{}] Build logs writed to {}", name, file),
         Ok(None) => {}
         Err(e) => error!("[{}] Failed to write output to logs: {}", name, e),
@@ -125,6 +157,72 @@ pub fn build_pkg(conf: &Conf, name: &String, pkg: &Package) -> Result<(), BuildE
     }
 }
 
+pub fn start_builder(conf: &Conf) -> Result<(), BuildError> {
+    let server_dir = conf.host_server_dir.as_deref();
+    let server_dir = String::from_utf8_lossy(
+        server_dir
+            .unwrap_or(&conf.server_dir)
+            .as_os_str()
+            .as_encoded_bytes(),
+    );
+    // Stop previous builds
+    command(
+        &[&conf.container_runner, "ok", CONTAINER_NAME],
+        &conf.server_dir,
+    )
+    .ok();
+    command(
+        &[&conf.container_runner, "rm", CONTAINER_NAME],
+        &conf.server_dir,
+    )
+    .ok();
+
+    let (status, out) = command(
+        &[
+            &conf.container_runner,
+            "run",
+            "--rm",
+            "--name",
+            CONTAINER_NAME,
+            "-d", // detach
+            &format!("-v={}:/build", server_dir),
+            "archlinux:base-devel",
+            "sh",
+            "-c",
+            "sleep infinity",
+        ],
+        &conf.server_dir,
+    )?;
+    if !status.success() {
+        error!("Fail to spawn builder");
+        Err(CmdError::from_output(out))?;
+    }
+    let (status, out) = command(
+        &[
+            &conf.container_runner,
+            "exec",
+            "--workdir=/build",
+            "--env=HOME=/tmp",
+            "--env=CCACHE_DIR=/build/cache/ccache/",
+            CONTAINER_NAME,
+            "bash",
+            &format!("/build/{}", BUILD_SCRIPT_FILE),
+            "start",
+        ],
+        &conf.server_dir,
+    )?;
+    match out_to_file(conf, "pacage_builder", "start", &out, status.success()) {
+        Ok(Some(file)) => info!("Start logs writed to {}", file),
+        Ok(None) => {}
+        Err(e) => error!("Failed to write output to logs: {}", e),
+    }
+    if !status.success() {
+        error!("Failed to start builder");
+        Err(CmdError::from_output(out))?;
+    }
+    Ok(())
+}
+
 pub fn build<'a>(
     conf: &'a Conf,
     pkgs: Vec<(&'a String, &'a Package)>,
@@ -135,45 +233,10 @@ pub fn build<'a>(
         return Ok(built);
     }
 
-    // Stop previous builds
-    let mut stop_cmd = Command::new(&conf.container_runner);
-    stop_cmd
-        .current_dir(&conf.server_dir)
-        .args(["stop", CONTAINER_NAME]);
-    command(stop_cmd).ok();
+    info!("Initiating builder container...");
+    start_builder(conf)?;
+    info!("Builder container initiated");
 
-    let mut stop_cmd = Command::new(&conf.container_runner);
-    stop_cmd
-        .current_dir(&conf.server_dir)
-        .args(["rm", CONTAINER_NAME]);
-    command(stop_cmd).ok();
-
-    let server_dir = conf.host_server_dir.as_deref();
-    let server_dir = String::from_utf8_lossy(
-        server_dir
-            .unwrap_or(&conf.server_dir)
-            .as_os_str()
-            .as_encoded_bytes(),
-    );
-    info!("Starting builder container");
-    let mut builder_cmd = Command::new(&conf.container_runner);
-    builder_cmd.current_dir(&conf.server_dir).args([
-        "run",
-        "--rm",
-        "--name",
-        CONTAINER_NAME,
-        "-d", // detach
-        &format!("-v={}:/build", server_dir),
-        "archlinux:base-devel",
-        "sh",
-        "-c",
-        "sleep infinity",
-    ]);
-    let (status, out) = command(builder_cmd)?;
-    if !status.success() {
-        error!("Fail to spawn builder");
-        Err(CmdError::from_output(out))?;
-    }
     for (name, pkg) in pkgs {
         info!("[{}] Starting build...", name);
         if let Ok(()) = build_pkg(conf, name, pkg) {
@@ -181,15 +244,16 @@ pub fn build<'a>(
         }
     }
 
-    let mut stop_cmd = Command::new(&conf.container_runner);
-    stop_cmd
-        .current_dir(&conf.server_dir)
-        .args(["stop", CONTAINER_NAME]);
-    let (status, out) = command(stop_cmd)?;
+    info!("Stoping builder...");
+    let (status, out) = command(
+        &[&conf.container_runner, "stop", CONTAINER_NAME],
+        &conf.server_dir,
+    )?;
     if !status.success() {
         error!("Failed to stop builder ->");
         write_last_lines(&out, 10);
     }
+    info!("Builder stoped");
 
     Ok(built)
 }

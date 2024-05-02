@@ -1,7 +1,6 @@
 use log::{error, info};
 use std::fs;
 use std::path::PathBuf;
-use std::process::Command;
 
 use crate::cmd::{command, CmdError, ExecError};
 use crate::conf::Package;
@@ -27,10 +26,10 @@ pub enum DownloadError {
 
 fn download_pkg(conf: &Conf, pkg: &str) -> Result<(), DownloadError> {
     let pkgs_dir = conf.server_dir.join("pkgs");
-    let mut cmd = Command::new("pkgctl");
-    cmd.current_dir(&pkgs_dir)
-        .args(["repo", "clone", "--protocol=https", &pkg]);
-    let (status, out) = command(cmd)?;
+    let (status, out) = command(
+        &["pkgctl", "repo", "clone", "--protocol=https", &pkg],
+        &pkgs_dir,
+    )?;
     if status.success() {
         info!("[{}] Download package", pkg);
         Ok(())
@@ -42,26 +41,20 @@ fn download_pkg(conf: &Conf, pkg: &str) -> Result<(), DownloadError> {
 
 fn update_pkg(pkg: &str, pkg_dir: &PathBuf, force_rebuild: bool) -> Result<bool, DownloadError> {
     info!("[{}] git rev-parse HEAD", pkg);
-    let mut cmd = Command::new("git");
-    cmd.current_dir(pkg_dir).args(["rev-parse", "HEAD"]);
-    let (status, previous) = command(cmd)?;
+    let (status, previous) = command(&["git", "rev-parse", "HEAD"], &pkg_dir)?;
     if !status.success() {
         return Err((CmdError::from_output(previous)).into());
     };
 
     info!("[{}] git pull", pkg);
-    let mut cmd = Command::new("git");
-    cmd.current_dir(pkg_dir).arg("pull");
-    let (status, out) = command(cmd)?;
+    let (status, out) = command(&["git", "pull"], &pkg_dir)?;
     if !status.success() {
         Err(CmdError::from_output(out))?
     }
 
     info!("[{}] git rev-parse HEAD", pkg);
     /* Getting the new version */
-    let mut cmd = Command::new("git");
-    cmd.current_dir(pkg_dir).args(["rev-parse", "HEAD"]);
-    let (status, new) = command(cmd)?;
+    let (status, new) = command(&["git", "rev-parse", "HEAD"], pkg_dir)?;
     if !status.success() {
         return Err((CmdError::from_output(new)).into());
     }

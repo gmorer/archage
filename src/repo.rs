@@ -4,7 +4,6 @@ use std::fs;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
-use std::process::Command;
 use tar::Archive;
 use thiserror::Error;
 
@@ -148,15 +147,14 @@ pub fn add(conf: &Conf, to_build: Vec<&String>) {
         info!("Nothing to add");
         return;
     }
-    let db = conf.get_repo();
+    let binding = conf.get_repo();
+    let db = binding.as_os_str().to_string_lossy();
     for name in to_build {
         if let Some(package_file) = find_package(conf, name) {
             // Move the package next to the db
-            let moved_package_file = Path::new(&conf.server_dir).join("repo").join(&package_file);
-            let mut cmd = Command::new("repo-add");
-            cmd.current_dir(&conf.server_dir)
-                .args([&db, &moved_package_file]);
-            match command(cmd) {
+            let tmp = Path::new(&conf.server_dir).join("repo").join(&package_file);
+            let moved_package_file = tmp.as_os_str().to_string_lossy();
+            match command(&["repo-add", &db, &moved_package_file], &conf.server_dir) {
                 Ok((status, _)) if status.success() => {}
                 Ok((_, out)) => {
                     error!("[{}] Failed to add the package to the db ->", name);

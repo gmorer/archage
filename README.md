@@ -11,7 +11,7 @@ Add a new entry to the `/etc/pacman.conf` with the output path of *pacage*, shou
 
 [pacage]
 SigLevel = Optional TrustAll
-Server = file://<SERVER_DIR>
+Server = file://<SERVER_DIR>/repo
 
 [...]
 ```
@@ -60,11 +60,11 @@ ccache = false
 │ ├ some_package/
 │ └ [..]
 │
-├ cache/               # ccache dir
-│ ├ ccache/
+├ cache/
+│ ├ ccache/             # ccache dir
 │ └ pacman/
 │
-├ src/                 # package source dir
+├ srcs/                 # package source dir
 │ ├ some_package/
 │ └ [..]
 │
@@ -86,10 +86,10 @@ ccache = false
 - [ ] PKGBUILD flags `groups=('pacage')` # need doc
 - [ ] Keep build files
 - [ ] Patch
-- [ ] pacman cache
+- [x] pacman cache
 - [ ] Test some big packages (base, base-devel, chromium, firefox)
 - [ ] Keep statistics (sled)
 - [ ] Really basic http stats webpage
 - [ ] Get max ram usage (podman-stats)
 - [x] Per package makepkg kinda like Cargo.toml
-- [ ] groups (base)
+- [ ] dependencies (will allow groups)
