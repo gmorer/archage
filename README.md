@@ -19,15 +19,20 @@ Server = file://<SERVER_DIR>/repo
 
 ### CLI interface
 ```bash
-$> pacage --help
-Usage: pacage [OPTIONS]
+# Download and build a package
+$> cabage get <pkg_name>
 
-Options:
-  -c <CONFFILE>        where to load conf from, default is <DEFAULT>
-      --force-rebuild  Rebuild packages even if there is no new versions
-      --skip-download  Only build package that have been previously downloaded
-  -h, --help           Print help
-  -V, --version        Print version
+# Download pkg sources
+$> cabage download <pkg_name>
+
+# (re)build a pkg
+$> cabage build <pkg_name>
+
+# list built packages
+$> cabage list
+
+# Download latest for every build packages and build them
+$> cabage update (<pkg_name>)
 ```
 
 ### Conf file
@@ -82,7 +87,7 @@ ccache = false
 ```
 
 # TODOS:
-- [ ] Implement the cli commented in src/cli.rs
+- [x] Implement the cli commented in src/cli.rs
 - [ ] PKGBUILD flags `groups=('pacage')` # need doc
 - [x] Patch
 - [x] pacman cache

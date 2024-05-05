@@ -1,34 +1,63 @@
-use log::{error, info, LevelFilter};
-use std::collections::HashSet;
+use log::{error, LevelFilter};
+use std::fmt::Display;
 use std::fs::{self, create_dir_all};
 use std::path::Path;
+use std::time::Duration;
 
 pub mod conf;
 pub use conf::Conf;
 
+// pub mod builder;
 pub mod patch;
 
 pub mod cmd;
 
 pub mod cli;
-use cli::Args;
+use cli::Cli;
 
+pub mod builder;
 mod repo;
 
-use crate::download::{PkgBuild, PkgBuildWithMakePkg};
+use crate::cli::CliCmd;
 
-pub mod build;
+// pub mod build;
 
 mod download;
 
 const BUILD_SCRIPT_CONTENT: &str = std::include_str!("../resources/build_pkg.sh");
 const BUILD_SCRIPT_FILE: &str = "pacage_build.sh";
 
-fn init(args: &Args) -> Result<Conf, String> {
+pub struct DurationPrinter(Duration);
+
+impl Display for DurationPrinter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let secs = self.0.as_secs();
+        let hours = (secs / 3600) as u16;
+        let minutes = ((secs / 60) % 60) as u16;
+        let seconds = (secs % 60) as u16;
+        if hours == 1 {
+            write!(f, "{} hour ", hours)?;
+        } else if hours > 1 {
+            write!(f, "{} hours ", hours)?;
+        }
+        if minutes == 1 {
+            write!(f, "{} minute ", minutes)?;
+        } else if minutes > 1 {
+            write!(f, "{} minutes ", minutes)?;
+        }
+        if seconds == 1 {
+            write!(f, "{} second ", seconds)?;
+        } else if seconds > 1 {
+            write!(f, "{} seconds", seconds)?;
+        }
+        Ok(())
+    }
+}
+
+fn init(args: &Cli) -> Result<Conf, String> {
     env_logger::builder().filter_level(LevelFilter::Info).init();
     let conf =
         Conf::new(args.confdir.as_deref()).map_err(|e| format!("Failed to create conf: {}", e))?;
-    conf.print();
     create_dir_all(&conf.server_dir).map_err(|e| format!("Failed to create server dir: {}", e))?;
     let pkgs_dir = conf.server_dir.join("pkgs");
     create_dir_all(&pkgs_dir).map_err(|e| format!("Failed to create pkgs dir: {}", e))?;
@@ -58,7 +87,7 @@ fn init(args: &Args) -> Result<Conf, String> {
 }
 
 fn main() {
-    let args = Args::get();
+    let args = Cli::get();
 
     let conf = match init(&args) {
         Ok(c) => c,
@@ -67,24 +96,14 @@ fn main() {
             std::process::exit(2);
         }
     };
-
-    if args.list_pkgs {
-        match repo::list(&conf) {
-            Ok(l) => {
-                for p in l {
-                    p.print();
-                }
-            }
-            Err(e) => {
-                eprintln!("{}", e.to_string());
-            }
-        }
-        return;
+    if let Err(e) = args.execute(&conf) {
+        std::process::exit(e)
     }
 
+    /*
     info!("Downloading packages...");
     let to_build = if !args.skip_download {
-        download::download_all(&conf, args.force_rebuild)
+        download::download_all(&conf, &conf.packages, args.force_rebuild)
     } else {
         // Only packages present on the file system
         let mut pkgs = HashSet::<PkgBuildWithMakePkg>::new();
@@ -106,10 +125,11 @@ fn main() {
     match build::build(&conf, to_build) {
         Ok(built) => {
             info!("Adding packages...");
-            repo::add(&conf, built);
+            repo::add_all(&conf, built);
         }
         Err(e) => {
             error!("Failed to build packages: {}", e);
         }
     }
+    */
 }

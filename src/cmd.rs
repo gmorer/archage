@@ -1,10 +1,14 @@
 use log::{debug, error};
 use nix::sys::epoll::{Epoll, EpollCreateFlags, EpollEvent, EpollFlags};
-use std::io::{Error as IoError, ErrorKind as IoErrorKind};
+use std::fs::File;
+use std::io::{BufWriter, Error as IoError, ErrorKind as IoErrorKind, Write};
 use std::os::fd::{AsFd, AsRawFd};
 use std::path::Path;
 use std::process::{Command, ExitStatus, Stdio};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
+
+use crate::Conf;
 
 #[derive(Debug, Error)]
 pub enum ExecError {
@@ -48,7 +52,9 @@ pub fn write_last_lines(lines: &[String], n: u32) {
 }
 
 // Kindof like combined output of go/exec
-fn _command(mut cmd: Command) -> Result<(ExitStatus, Vec<String>), ExecError> {
+fn _command(mut cmd: Command) -> Result<(ExitStatus, Vec<String>, Duration), ExecError> {
+    // TODO: put a timer as well
+    let start = Instant::now();
     let mut output = Vec::new();
     let mut child = cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
 
@@ -115,10 +121,13 @@ fn _command(mut cmd: Command) -> Result<(ExitStatus, Vec<String>), ExecError> {
             *line_buffer = line_buffer[offset..].to_string();
         }
     };
-    Ok((status, output))
+    Ok((status, output, start.elapsed()))
 }
 
-pub fn command<P>(args: &[&str], current_dir: P) -> Result<(ExitStatus, Vec<String>), ExecError>
+pub fn command<P>(
+    args: &[&str],
+    current_dir: P,
+) -> Result<(ExitStatus, Vec<String>, Duration), ExecError>
 where
     P: AsRef<Path>,
 {
@@ -127,4 +136,35 @@ where
     cmd.args(&args[1..]);
     cmd.current_dir(current_dir);
     _command(cmd)
+}
+
+pub fn out_to_file(
+    conf: &Conf,
+    pkg: &str,
+    action: &str,
+    out: &Vec<String>,
+    success: bool,
+) -> Result<Option<String>, IoError> {
+    if let Some(build_log_dir) = &conf.build_log_dir {
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let path = build_log_dir.join(format!(
+            "{}_{}_{}_{}.log",
+            pkg,
+            action,
+            if success { "SUCCESS" } else { "ERROR" },
+            ts
+        ));
+        let file = File::create(&path)?;
+        let mut writer = BufWriter::new(file);
+        for line in out {
+            writer.write(line.as_bytes())?;
+            writer.write(b"\n")?;
+        }
+        Ok(path.to_str().map(ToString::to_string))
+    } else {
+        Ok(None)
+    }
 }

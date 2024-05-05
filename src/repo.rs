@@ -1,6 +1,5 @@
 use flate2::read::GzDecoder;
-use log::{error, info};
-use std::collections::HashSet;
+use log::error;
 use std::fs;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -11,7 +10,6 @@ use thiserror::Error;
 use crate::cmd::command;
 use crate::cmd::write_last_lines;
 use crate::conf::Conf;
-use crate::download::PkgBuild;
 
 #[derive(Debug, Error)]
 pub enum RepoError {
@@ -144,33 +142,38 @@ fn find_package(conf: &Conf, name: &str) -> Option<String> {
     None
 }
 
-pub fn add(conf: &Conf, to_build: HashSet<PkgBuild>) {
-    if to_build.is_empty() {
-        info!("Nothing to add");
-        return;
+pub fn add(conf: &Conf, name: &str) -> Result<(), String> {
+    if let Some(package_file) = find_package(conf, name) {
+        let binding = conf.get_repo();
+        let db = binding.as_os_str().to_string_lossy();
+        // Move the package next to the db
+        let tmp = Path::new(&conf.server_dir).join("repo").join(&package_file);
+        let moved_package_file = tmp.as_os_str().to_string_lossy();
+        match command(&["repo-add", &db, &moved_package_file], &conf.server_dir) {
+            Ok((status, _, _)) if status.success() => {}
+            Ok((_, out, _)) => {
+                error!("[{}] Failed to add the package to the db ->", name);
+                write_last_lines(&out, 5);
+            }
+            Err(e) => {
+                error!("[{}] Failed to add to the db: {}", name, e);
+            }
+        };
+    } else {
+        error!("[{}] Failed to find package file", name);
     }
-    let binding = conf.get_repo();
-    let db = binding.as_os_str().to_string_lossy();
-    for pkg in to_build {
-        if let Some(package_file) = find_package(conf, &pkg.name) {
-            // Move the package next to the db
-            let tmp = Path::new(&conf.server_dir).join("repo").join(&package_file);
-            let moved_package_file = tmp.as_os_str().to_string_lossy();
-            match command(&["repo-add", &db, &moved_package_file], &conf.server_dir) {
-                Ok((status, _)) if status.success() => {}
-                Ok((_, out)) => {
-                    error!("[{}] Failed to add the package to the db ->", pkg.name);
-                    write_last_lines(&out, 5);
-                }
-                Err(e) => {
-                    error!("[{}] Failed to add to the db: {}", pkg.name, e);
-                }
-            };
-        } else {
-            error!("[{}] Failed to find package file", pkg.name);
-        }
-    }
+    Ok(())
 }
+
+// pub fn add_all(conf: &Conf, to_build: HashSet<PkgBuild>) {
+//     if to_build.is_empty() {
+//         info!("Nothing to add");
+//         return;
+//     }
+//     for pkg in to_build {
+//         add(conf, &pkg.name);
+//     }
+// }
 
 pub fn list(conf: &Conf) -> Result<Vec<DbPackage>, RepoError> {
     let mut pkgs = Vec::new();

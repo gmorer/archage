@@ -1,7 +1,7 @@
 use crate::conf::Conf;
 use log::{error, info};
 use std::ffi::OsStr;
-use std::fs::read_dir;
+use std::fs::{read_dir, File};
 use std::io::{self, ErrorKind};
 use std::path::PathBuf;
 use thiserror::Error;
@@ -23,7 +23,7 @@ pub enum PatchError {
 }
 
 pub fn find_src(conf: &Conf, pkg: &PkgBuild) -> Option<PathBuf> {
-    let src_dir = conf.server_dir.join("srcs").join(&pkg.name).join("src");
+    let src_dir = conf.pkg_src(&pkg.name).join("src");
     if src_dir.join(&pkg.name).exists() {
         return Some(src_dir.join(&pkg.name));
     }
@@ -62,7 +62,12 @@ pub fn find_src(conf: &Conf, pkg: &PkgBuild) -> Option<PathBuf> {
     return None;
 }
 
+// TODO: mark folder as patched
 pub fn patch(conf: &Conf, pkg: &PkgBuild) -> Result<Option<()>, PatchError> {
+    let patch_marker = conf.pkg_src(&pkg.name).join(".pacage_patched");
+    if patch_marker.exists() {
+        return Ok(None);
+    }
     let patch_dir_path = conf.conf_dir.join("patchs").join(&pkg.name);
     let patch_dir = match read_dir(patch_dir_path) {
         Ok(d) => d,
@@ -107,7 +112,7 @@ pub fn patch(conf: &Conf, pkg: &PkgBuild) -> Result<Option<()>, PatchError> {
         };
         if file.path().extension() == Some(OsStr::new("patch")) {
             info!("[{}] applying {}...", pkg.name, file.path().display());
-            let (status, out) = command(
+            let (status, out, _) = command(
                 &[
                     "bash",
                     "-c",
@@ -132,5 +137,6 @@ pub fn patch(conf: &Conf, pkg: &PkgBuild) -> Result<Option<()>, PatchError> {
             }
         }
     }
+    File::create(patch_marker)?;
     Ok(Some(()))
 }

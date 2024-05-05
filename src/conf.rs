@@ -1,3 +1,4 @@
+use log::error;
 use serde::Deserialize;
 use std::fs;
 use std::path::PathBuf;
@@ -48,8 +49,9 @@ impl Makepkg {
     pub fn get_conf_file(
         conf: &Conf,
         makepkg: Option<&Makepkg>,
-        name: &String,
+        name: &str,
     ) -> Result<String, std::io::Error> {
+        // TODO: use env instead
         let mut file = std::fs::read_to_string("/etc/makepkg.conf")?;
         let def = conf.makepkg.as_ref();
         file.push('\n');
@@ -203,21 +205,23 @@ impl Conf {
         })
     }
 
-    pub fn print(&self) {
-        println!("Server: {:?}", self.server_dir);
+    // Directory containing the pkgbuild
+    pub fn pkg_dir(&self, pkg: &str) -> PathBuf {
+        self.server_dir.join("pkgs").join(pkg)
     }
 
-    pub fn pkg_dir(&self, pkg: &str) -> PathBuf {
-        let mut path = self.server_dir.clone();
-        path.push("pkgs");
-        path.push(pkg);
-        path
+    // Directory containing the package sources
+    pub fn pkg_src(&self, pkg: &str) -> PathBuf {
+        self.server_dir.join("srcs").join(pkg)
     }
 
     pub fn get_repo(&self) -> PathBuf {
-        self.server_dir
-            .clone()
-            .join("repo")
-            .join("pacage.db.tar.gz")
+        self.server_dir.join("repo").join("pacage.db.tar.gz")
+    }
+
+    pub fn remove_src(&self, pkg: &str) {
+        if let Err(e) = fs::remove_dir_all(self.pkg_src(pkg)) {
+            error!("[{}] could not remove src dir: {}", pkg, e);
+        }
     }
 }
