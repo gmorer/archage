@@ -1,9 +1,12 @@
 use log::{error, info, LevelFilter};
+use std::collections::HashSet;
 use std::fs::{self, create_dir_all};
 use std::path::Path;
 
 pub mod conf;
 pub use conf::Conf;
+
+pub mod patch;
 
 pub mod cmd;
 
@@ -12,7 +15,7 @@ use cli::Args;
 
 mod repo;
 
-use crate::conf::Package;
+use crate::download::{PkgBuild, PkgBuildWithMakePkg};
 
 pub mod build;
 
@@ -24,7 +27,7 @@ const BUILD_SCRIPT_FILE: &str = "pacage_build.sh";
 fn init(args: &Args) -> Result<Conf, String> {
     env_logger::builder().filter_level(LevelFilter::Info).init();
     let conf =
-        Conf::new(args.conffile.as_deref()).map_err(|e| format!("Failed to create conf: {}", e))?;
+        Conf::new(args.confdir.as_deref()).map_err(|e| format!("Failed to create conf: {}", e))?;
     conf.print();
     create_dir_all(&conf.server_dir).map_err(|e| format!("Failed to create server dir: {}", e))?;
     let pkgs_dir = conf.server_dir.join("pkgs");
@@ -84,10 +87,20 @@ fn main() {
         download::download_all(&conf, args.force_rebuild)
     } else {
         // Only packages present on the file system
-        conf.packages
-            .iter()
-            .filter(|(name, _)| conf.pkg_dir(name.as_str()).exists())
-            .collect::<Vec<(&String, &Package)>>()
+        let mut pkgs = HashSet::<PkgBuildWithMakePkg>::new();
+        for (name, pkg) in conf.packages.iter() {
+            if conf.pkg_dir(name.as_str()).exists() {
+                match PkgBuild::new(&conf, &name) {
+                    Ok(p) => {
+                        pkgs.insert(PkgBuildWithMakePkg((p, pkg.makepkg.as_ref())));
+                    }
+                    Err(e) => {
+                        error!("[{}] Failed to read pkgbuild: {}", name, e)
+                    }
+                }
+            }
+        }
+        pkgs
     };
     info!("Building packages...");
     match build::build(&conf, to_build) {

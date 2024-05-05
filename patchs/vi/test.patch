@@ -1,0 +1,12 @@
+diff '--color=auto' -Naru ex-070224/ex_vmain.c ex-070224.patched/ex_vmain.c
+--- ex-070224/ex_vmain.c	2005-08-06 12:06:49.000000000 +0000
++++ ex-070224.patched/ex_vmain.c	2024-05-05 13:35:58.750688812 +0000
+@@ -107,6 +107,8 @@
+ 	int (*OPline)(int, int) = NULL;
+ 	int (*OPutchar)(int) = NULL;
+ 
++	printf(" == ex or vi?\n");
++
+ 	CLOBBGRD(c);
+ 	CLOBBGRD(cnt);
+ 	CLOBBGRD(i);

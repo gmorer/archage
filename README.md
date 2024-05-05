@@ -82,14 +82,12 @@ ccache = false
 ```
 
 # TODOS:
-- [ ] Daemon mod
+- [ ] Implement the cli commented in src/cli.rs
 - [ ] PKGBUILD flags `groups=('pacage')` # need doc
-- [ ] Keep build files
-- [ ] Patch
+- [x] Patch
 - [x] pacman cache
 - [ ] Test some big packages (base, base-devel, chromium, firefox)
 - [ ] Keep statistics (sled)
-- [ ] Really basic http stats webpage
 - [ ] Get max ram usage (podman-stats)
 - [x] Per package makepkg kinda like Cargo.toml
 - [ ] dependencies (will allow groups)

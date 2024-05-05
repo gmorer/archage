@@ -1,10 +1,11 @@
 use serde::Deserialize;
+use std::fs;
 use std::path::PathBuf;
 use std::{collections::HashMap, fs::read_to_string};
 use thiserror::Error;
 use toml::{Table, Value};
 
-const DEFAULT_CONF_LOCATION: &str = "/etc/pacage/conf.toml";
+const DEFAULT_CONF_DIR: &str = "/etc/pacage";
 
 #[derive(Debug, Error)]
 pub enum ConfError {
@@ -22,7 +23,7 @@ fn default_server() -> PathBuf {
 
 #[derive(Deserialize, Debug, Default)]
 pub struct Package {
-    makepkg: Option<Makepkg>,
+    pub makepkg: Option<Makepkg>,
 }
 
 fn write_value(file: &mut String, key: &str, value: Option<&String>, def: Option<&String>) {
@@ -31,11 +32,26 @@ fn write_value(file: &mut String, key: &str, value: Option<&String>, def: Option
     }
 }
 
-impl Package {
-    pub fn get_makepkg(&self, conf: &Conf, name: &String) -> Result<String, std::io::Error> {
+#[derive(Deserialize, Debug, Default)]
+pub struct Makepkg {
+    packager: Option<String>,
+    cflags: Option<String>,
+    cxxflags: Option<String>,
+    rustflags: Option<String>,
+    makeflags: Option<String>,
+    ldflags: Option<String>,
+    ltoflags: Option<String>,
+    pub ccache: Option<bool>,
+}
+
+impl Makepkg {
+    pub fn get_conf_file(
+        conf: &Conf,
+        makepkg: Option<&Makepkg>,
+        name: &String,
+    ) -> Result<String, std::io::Error> {
         let mut file = std::fs::read_to_string("/etc/makepkg.conf")?;
         let def = conf.makepkg.as_ref();
-        let makepkg = self.makepkg.as_ref();
         file.push('\n');
         file.push_str(&format!("SRCDEST=/build/srcs/{}\n", name));
         file.push_str(&format!("SRCPKGDEST==/build/srcs/{}\n", name));
@@ -83,8 +99,7 @@ impl Package {
             makepkg.map(|a| a.ltoflags.as_ref()).flatten(),
             def.map(|a| a.ltoflags.as_ref()).flatten(),
         );
-        if self
-            .makepkg
+        if makepkg
             .as_ref()
             .map(|c| c.ccache)
             .unwrap_or(Some(def.is_some_and(|d| d.ccache.is_some_and(|d| d))))
@@ -102,6 +117,7 @@ pub struct Conf {
     #[serde(default = "default_server")]
     pub server_dir: PathBuf,
 
+    pub conf_dir: PathBuf,
     // Server dir seen by the container runtime (ex. usage: podman-remote)
     pub host_server_dir: Option<PathBuf>,
 
@@ -112,23 +128,17 @@ pub struct Conf {
     pub build_log_dir: Option<PathBuf>,
 }
 
-#[derive(Deserialize, Debug, Default)]
-pub struct Makepkg {
-    packager: Option<String>,
-    cflags: Option<String>,
-    cxxflags: Option<String>,
-    rustflags: Option<String>,
-    makeflags: Option<String>,
-    ldflags: Option<String>,
-    ltoflags: Option<String>,
-    pub ccache: Option<bool>,
-}
-
-impl Makepkg {}
-
 impl Conf {
-    pub fn new(conf_file: Option<&str>) -> Result<Self, ConfError> {
-        let f = read_to_string(conf_file.unwrap_or(DEFAULT_CONF_LOCATION))?;
+    pub fn new(conf_dir: Option<&str>) -> Result<Self, ConfError> {
+        // TODO: full dir from root
+        let conf_dir = match fs::canonicalize(conf_dir.unwrap_or(DEFAULT_CONF_DIR)) {
+            Ok(p) => p,
+            Err(e) => Err(ConfError::Format(format!(
+                "Failed to parse conf dir: {}",
+                e
+            )))?,
+        };
+        let f = read_to_string(conf_dir.join("pacage.toml"))?;
         let g = f.parse::<Table>()?;
         let mut packages = HashMap::new();
         let container_runner = match g.get("container_runner") {
@@ -185,6 +195,7 @@ impl Conf {
         Ok(Self {
             container_runner,
             server_dir,
+            conf_dir,
             host_server_dir,
             makepkg,
             build_log_dir,
