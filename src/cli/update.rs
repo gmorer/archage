@@ -29,7 +29,11 @@ impl CliCmd for Update {
 
 impl Update {
     fn update_one(&self, conf: &Conf, name: &str) -> Result<(), i32> {
-        let pkgbuild = download_pkg(&conf, &name, self.force_rebuild).map_err(cmd_err)?;
+        let pkgbuilds = download_pkg(&conf, &name, self.force_rebuild).map_err(cmd_err)?;
+        if !builder::should_build(&pkgbuilds) {
+            println!("Nothing to do :)");
+            return Ok(());
+        }
         let makepkg = conf
             .packages
             .get(name)
@@ -39,18 +43,34 @@ impl Update {
         builder
             .download_src(&conf, name, makepkg)
             .map_err(cmd_err)?;
-        patch(&conf, &pkgbuild).map_err(cmd_err)?;
-        builder.build_pkg(conf, name, makepkg).map_err(cmd_err)?;
-        repo::add(&conf, name).map_err(cmd_err)?;
+        for pkgbuild in pkgbuilds {
+            if pkgbuild.src == false {
+                continue;
+            }
+            patch(&conf, &pkgbuild).map_err(cmd_err)?;
+            builder
+                .build_pkg(conf, &pkgbuild.name, makepkg)
+                .map_err(cmd_err)?;
+            repo::add(&conf, name).map_err(cmd_err)?;
+        }
         Ok(())
     }
 
     fn update_all(&self, conf: &Conf) -> Result<(), i32> {
         let pkgbuilds =
             download_all(&conf, &conf.packages, self.force_rebuild, false).map_err(cmd_err)?;
+        // Check whats installed
+        if !builder::should_build(&pkgbuilds) {
+            println!("Nothing to do :)");
+            return Ok(());
+        }
+        println!("pkgs to build: {:?}", pkgbuilds);
         let builder = builder::Builder::new(&conf).map_err(cmd_err)?;
-        for pkg in pkgbuilds {
-            let name = &pkg.0 .0.name;
+        for pkgbuild in pkgbuilds {
+            if pkgbuild.src == false {
+                continue;
+            }
+            let name = &pkgbuild.name;
             let makepkg = conf
                 .packages
                 .get(name)
@@ -59,7 +79,7 @@ impl Update {
             builder
                 .download_src(&conf, name, makepkg)
                 .map_err(cmd_err)?;
-            patch(&conf, &pkg.0 .0).map_err(cmd_err)?;
+            patch(&conf, &pkgbuild).map_err(cmd_err)?;
             builder.build_pkg(conf, name, makepkg).map_err(cmd_err)?;
             repo::add(&conf, name).map_err(cmd_err)?;
         }

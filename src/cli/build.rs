@@ -2,7 +2,7 @@ use clap::Args;
 
 use crate::builder;
 use crate::cli::{cmd_err, CliCmd};
-use crate::download::PkgBuild;
+use crate::download::SrcInfo;
 use crate::patch::patch;
 use crate::repo;
 
@@ -14,7 +14,7 @@ pub struct Build {
 
 impl CliCmd for Build {
     fn execute(&self, conf: &crate::Conf) -> Result<(), i32> {
-        let pkg_build = PkgBuild::new(conf, &self.name).map_err(cmd_err)?;
+        let pkg_build = SrcInfo::new(conf, &self.name).map_err(cmd_err)?;
         if !conf.pkg_src(&self.name).exists() {
             Err(cmd_err(format!(
                 "Missing packages sources, run 'pacage download {}' to get them",

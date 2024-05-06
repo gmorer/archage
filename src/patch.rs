@@ -6,8 +6,8 @@ use std::io::{self, ErrorKind};
 use std::path::PathBuf;
 use thiserror::Error;
 
-use crate::cmd::{command, write_last_lines, ExecError};
-use crate::download::PkgBuild;
+use crate::cmd::{command, out_to_file, write_last_lines, ExecError};
+use crate::download::SrcInfo;
 
 // Create a patch: diff  -Naru  ex-070224{,.patched} > file.patch
 // Apply patch: patch -p1 < file.patch
@@ -22,7 +22,7 @@ pub enum PatchError {
     PatchApply(),
 }
 
-pub fn find_src(conf: &Conf, pkg: &PkgBuild) -> Option<PathBuf> {
+pub fn find_src(conf: &Conf, pkg: &SrcInfo) -> Option<PathBuf> {
     let src_dir = conf.pkg_src(&pkg.name).join("src");
     if src_dir.join(&pkg.name).exists() {
         return Some(src_dir.join(&pkg.name));
@@ -63,7 +63,7 @@ pub fn find_src(conf: &Conf, pkg: &PkgBuild) -> Option<PathBuf> {
 }
 
 // TODO: mark folder as patched
-pub fn patch(conf: &Conf, pkg: &PkgBuild) -> Result<Option<()>, PatchError> {
+pub fn patch(conf: &Conf, pkg: &SrcInfo) -> Result<Option<()>, PatchError> {
     let patch_marker = conf.pkg_src(&pkg.name).join(".pacage_patched");
     if patch_marker.exists() {
         return Ok(None);
@@ -127,6 +127,11 @@ pub fn patch(conf: &Conf, pkg: &PkgBuild) -> Result<Option<()>, PatchError> {
                     file.path().file_name()
                 );
                 write_last_lines(&out, 10);
+                match out_to_file(conf, &pkg.name, "patch", &out, false) {
+                    Ok(Some(file)) => info!("Full failed patch writed to {}", file),
+                    Ok(None) => {}
+                    Err(e) => error!("Failed to write patch output to logs: {}", e),
+                }
                 Err(PatchError::PatchApply())?
             } else {
                 info!(

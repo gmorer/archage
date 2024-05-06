@@ -20,9 +20,9 @@ pub enum RepoError {
 }
 
 pub struct DbPackage {
-    name: String,
+    pub name: String,
     // https://gitlab.archlinux.org/pacman/pacman/-/blob/master/lib/libalpm/version.c
-    version: String,
+    pub version: String,
     arch: String,
     packager: String,
     build_date: u32,
@@ -46,7 +46,7 @@ impl DbPackage {
         let mut packager = None;
         let mut build_date = None;
         for line in data.lines() {
-            if let Ok(line) = line {
+            if let Ok(mut line) = line {
                 if line.is_empty() {
                     key = None;
                     continue;
@@ -67,7 +67,17 @@ impl DbPackage {
                         key = None;
                     }
                     Some(Key::Version) => {
-                        version = Some(line);
+                        // remove rel and buildnum
+                        if let Some(c) = line.find(':') {
+                            if c < line.len() {
+                                line = line[(c + 1)..].to_string();
+                            }
+                        }
+                        if let Some(c) = line.find('-') {
+                            version = Some(line[..c].to_string());
+                        } else {
+                            version = Some(line);
+                        }
                         key = None;
                     }
                     Some(Key::Arch) => {
@@ -111,9 +121,6 @@ impl DbPackage {
         );
 
         None
-    }
-    pub fn print(&self) {
-        println!("{} {} ", self.name, self.version);
     }
 }
 

@@ -1,11 +1,13 @@
 use crate::conf::Makepkg;
 use log::{error, info};
+use std::collections::HashSet;
 use std::fs::{self};
 use std::io;
 use std::path::Path;
 use thiserror::Error;
 
 use crate::cmd::{command, out_to_file, write_last_lines, CmdError, ExecError};
+use crate::download::SrcInfo;
 use crate::{Conf, DurationPrinter, BUILD_SCRIPT_FILE};
 
 const CONTAINER_NAME: &str = "pacage_builder";
@@ -24,6 +26,15 @@ pub enum BuilderError {
 
 pub struct Builder {
     container_runner: String,
+}
+
+pub fn should_build(pkgbuilds: &HashSet<SrcInfo>) -> bool {
+    for pkgbuild in pkgbuilds {
+        if pkgbuild.src {
+            return true;
+        }
+    }
+    false
 }
 
 impl Builder {

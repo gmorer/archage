@@ -24,7 +24,9 @@ fn default_server() -> PathBuf {
 
 #[derive(Deserialize, Debug, Default)]
 pub struct Package {
+    // name should be there :/
     pub makepkg: Option<Makepkg>,
+    pub deps: Option<bool>,
 }
 
 fn write_value(file: &mut String, key: &str, value: Option<&String>, def: Option<&String>) {
@@ -128,6 +130,9 @@ pub struct Conf {
     pub makepkg: Option<Makepkg>,
 
     pub build_log_dir: Option<PathBuf>,
+    // TODO(feat):
+    // pub log_on_error: Option<bool>
+    pub deps: Option<bool>,
 }
 
 impl Conf {
@@ -175,6 +180,11 @@ impl Conf {
                 a
             )))?,
         };
+        let deps = match g.get("deps") {
+            None => None,
+            Some(Value::Boolean(deps)) => Some(*deps),
+            Some(a) => Err(ConfError::Format(format!("Invalid \"deps\": {:?}", a)))?,
+        };
         let makepkg: Option<Makepkg> = match g.get("makepkg") {
             None => None,
             Some(Value::Table(makepkg)) => Some(
@@ -201,6 +211,7 @@ impl Conf {
             host_server_dir,
             makepkg,
             build_log_dir,
+            deps,
             packages,
         })
     }
@@ -223,5 +234,14 @@ impl Conf {
         if let Err(e) = fs::remove_dir_all(self.pkg_src(pkg)) {
             error!("[{}] could not remove src dir: {}", pkg, e);
         }
+    }
+
+    pub fn need_deps(&self, name: &str) -> bool {
+        if let Some(pkg) = self.packages.get(name) {
+            if let Some(deps) = pkg.deps {
+                return deps;
+            }
+        }
+        self.deps.unwrap_or(false)
     }
 }

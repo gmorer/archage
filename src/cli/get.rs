@@ -24,21 +24,30 @@ pub struct Get {
 
 impl CliCmd for Get {
     fn execute(&self, conf: &crate::Conf) -> Result<(), i32> {
-        let pkgbuild = download_pkg(&conf, &self.name, self.force_rebuild).map_err(cmd_err)?;
-        let makepkg = conf
-            .packages
-            .get(&self.name)
-            .map(|p| p.makepkg.as_ref())
-            .flatten();
+        let pkgbuilds = download_pkg(&conf, &self.name, self.force_rebuild).map_err(cmd_err)?;
+        if !builder::should_build(&pkgbuilds) {
+            println!("Nothing to do :)");
+            return Ok(());
+        }
         let builder = builder::Builder::new(&conf).map_err(cmd_err)?;
-        builder
-            .download_src(&conf, &self.name, makepkg)
-            .map_err(cmd_err)?;
-        patch(&conf, &pkgbuild).map_err(cmd_err)?;
-        builder
-            .build_pkg(conf, &self.name, makepkg)
-            .map_err(cmd_err)?;
-        repo::add(&conf, &self.name).map_err(cmd_err)?;
+        for pkgbuild in pkgbuilds {
+            if pkgbuild.src == false {
+                continue;
+            }
+            let makepkg = conf
+                .packages
+                .get(&pkgbuild.name)
+                .map(|p| p.makepkg.as_ref())
+                .flatten();
+            builder
+                .download_src(&conf, &pkgbuild.name, makepkg)
+                .map_err(cmd_err)?;
+            patch(&conf, &pkgbuild).map_err(cmd_err)?;
+            builder
+                .build_pkg(conf, &pkgbuild.name, makepkg)
+                .map_err(cmd_err)?;
+            repo::add(&conf, &pkgbuild.name).map_err(cmd_err)?;
+        }
         Ok(())
     }
 }

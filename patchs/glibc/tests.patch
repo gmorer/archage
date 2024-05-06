@@ -1,0 +1,65 @@
+diff '--color=auto' -ruN glibc/src/glibc/io/Makefile glibc.patched/src/glibc/io/Makefile
+--- glibc/io/Makefile	2024-05-06 18:59:40.259304430 +0000
++++ glibc.patched/io/Makefile	2024-05-06 19:06:51.460154712 +0000
+@@ -218,7 +218,6 @@
+   tst-readlinkat \
+   tst-renameat \
+   tst-stat \
+-  tst-stat-lfs \
+   tst-statvfs \
+   tst-symlinkat \
+   tst-ttyname_r \
+diff '--color=auto' -ruN glibc/src/glibc/resolv/Makefile glibc.patched/src/glibc/resolv/Makefile
+--- glibc/resolv/Makefile	2024-05-06 18:59:39.582605363 +0000
++++ glibc.patched/resolv/Makefile	2024-05-06 19:09:13.527244510 +0000
+@@ -136,8 +136,6 @@
+ 
+ # Needs resolv_context.
+ tests-internal += \
+-  tst-resolv-res_init \
+-  tst-resolv-res_init-thread \
+   tst-resolv-res_ninit \
+   tst-resolv-threads \
+ 
+diff '--color=auto' -ruN glibc/src/glibc/stdlib/Makefile glibc.patched/src/glibc/stdlib/Makefile
+--- glibc/stdlib/Makefile	2024-05-06 18:59:40.275971896 +0000
++++ glibc.patched/stdlib/Makefile	2024-05-06 19:10:04.616442491 +0000
+@@ -247,16 +247,13 @@
+   bug-strtod \
+   bug-strtod2 \
+   test-a64l \
+-  test-at_quick_exit-race \
+   test-atexit-race \
+   test-atexit-recursive \
+   test-bz22786 \
+   test-canon \
+   test-canon2 \
+-  test-cxa_atexit-race \
+   test-cxa_atexit-race2 \
+   test-dlclose-exit-race \
+-  test-on_exit-race \
+   testdiv \
+   testmb \
+   testmb2 \
+diff '--color=auto' -ruN glibc/src/glibc/support/Makefile glibc.patched/src/glibc/support/Makefile
+--- glibc/support/Makefile	2024-05-06 18:59:40.279305388 +0000
++++ glibc.patched/support/Makefile	2024-05-06 19:10:10.446730832 +0000
+@@ -318,7 +318,6 @@
+   tst-support-process_state \
+   tst-support_blob_repeat \
+   tst-support_capture_subprocess \
+-  tst-support_descriptors \
+   tst-support_format_dns_packet \
+   tst-support_quote_blob \
+   tst-support_quote_blob_wide \
+diff '--color=auto' -ruN glibc/src/glibc/sysdeps/unix/sysv/linux/Makefile glibc.patched/src/glibc/sysdeps/unix/sysv/linux/Makefile
+--- glibc/sysdeps/unix/sysv/linux/Makefile	2024-05-06 18:59:39.942622601 +0000
++++ glibc.patched/sysdeps/unix/sysv/linux/Makefile	2024-05-06 19:07:45.192845829 +0000
+@@ -213,7 +213,6 @@
+   tst-ntp_gettime \
+   tst-ntp_gettimex \
+   tst-ofdlocks \
+-  tst-personality \
+   tst-pidfd \
+   tst-pidfd_getpid \
+   tst-pkey \

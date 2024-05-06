@@ -87,12 +87,13 @@ ccache = false
 ```
 
 # TODOS:
-- [x] Implement the cli commented in src/cli.rs
-- [ ] PKGBUILD flags `groups=('pacage')` # need doc
-- [x] Patch
 - [x] pacman cache
-- [ ] Test some big packages (base, base-devel, chromium, firefox)
-- [ ] Keep statistics (sled)
-- [ ] Get max ram usage (podman-stats)
-- [x] Per package makepkg kinda like Cargo.toml
+- [x] Patch
+- [x] Implement the cli commented in src/cli.rs
+- [ ] Find a solution to find pkgbase from pkgname
 - [ ] dependencies (will allow groups)
+- [ ] Test some big packages (base, base-devel, chromium, firefox)
+- [ ] handle split pkg: List of pkgbase and a list of pkgname with a ref to pkgbase
+- [ ] Get max ram usage (podman-stats)
+- [ ] Keep statistics (sled)
+- [ ] PKGBUILD flags `groups=('pacage')` # need doc

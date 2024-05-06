@@ -7,7 +7,7 @@ use crate::Conf;
 mod build;
 mod download;
 mod get;
-mod list;
+mod status;
 mod update;
 
 /*
@@ -19,9 +19,15 @@ $> cabage patch start <pkg_name>
 $> cabage patch build
 # Save the patch
 $> cabage patch finish
+# Check the patch diff
+$> cabage patch diff
 
 Clean:
 $> cabage clean (<pkg_name>)
+
+Status:
+check version downloaded and installed
+$> cabage status (--pull) (<pkg_name>)
 */
 
 pub fn cmd_err(e: impl Display) -> i32 {
@@ -56,10 +62,10 @@ enum Commands {
     Download(download::Download),
     /// Only build
     Build(build::Build),
-    /// List built packages
-    List(list::List),
     /// Update packages
     Update(update::Update),
+    /// Check status
+    Status(status::Status),
 }
 
 impl CliCmd for Commands {
@@ -68,8 +74,8 @@ impl CliCmd for Commands {
             Commands::Get(a) => a.execute(&conf),
             Commands::Download(a) => a.execute(&conf),
             Commands::Build(a) => a.execute(&conf),
-            Commands::List(a) => a.execute(&conf),
             Commands::Update(a) => a.execute(&conf),
+            Commands::Status(a) => a.execute(&conf),
         }
     }
 }
