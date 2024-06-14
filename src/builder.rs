@@ -61,6 +61,8 @@ impl Builder {
                 &conf.container_runner,
                 "run",
                 "--rm",
+                "--pids-limit", // got a pid limit :/
+                "-1",
                 "--name",
                 CONTAINER_NAME,
                 "-d", // detach

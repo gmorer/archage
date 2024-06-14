@@ -106,6 +106,7 @@ ccache = false
 - [-] ~use gitoxide~ (to big of a dependency)
 - [x] Find a solution to find pkgbase from pkgname
 - [x] dependencies (will allow groups)
+- [ ] Get rid of zombies pids in between builds 
 - [ ] use custom git url (AUR)
 - [ ] Test some big packages (base, base-devel, chromium, firefox)
 - [ ] handle split pkg: List of pkgbase and a list of pkgname with a ref to pkgbase

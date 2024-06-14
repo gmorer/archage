@@ -17,6 +17,9 @@ pub struct SrcInfo {
     // TODO(feat): deps
     pub deps: Vec<String>,
     pub src: bool,
+
+    // The package doesnt need to be build
+    pub build: bool,
 }
 
 impl std::cmp::PartialEq for SrcInfo {
@@ -53,11 +56,14 @@ pub enum ParsingError {
     Cmd(#[from] CmdError),
 
     #[error("System errro while parsing .SRCINFO : {0}")]
-    PkgBuild(#[from] io::Error),
+    SrcInfo(#[from] io::Error),
+
+    #[error("System errro while reading PKGBUILD : {0}")]
+    PkgBuild(String),
 }
 
 impl SrcInfo {
-    fn parse<'a, I>(lines: I) -> Result<Self, ParsingError>
+    fn parse<'a, I>(lines: I, build: bool) -> Result<Self, ParsingError>
     where
         I: IntoIterator,
         I::Item: Borrow<str>,
@@ -92,6 +98,7 @@ impl SrcInfo {
                 release: release.unwrap(),
                 deps,
                 src,
+                build,
             });
         }
         Err(io::Error::new(
@@ -103,8 +110,23 @@ impl SrcInfo {
         ))?
     }
 
+    // Not the best way :/
+    fn can_build(conf: &Conf, pkg_name: &str) -> Result<bool, ParsingError> {
+        let path = conf.server_dir.join("pkgs").join(pkg_name).join("PKGBUILD");
+        let file = fs::File::open(path).map_err(|e| ParsingError::PkgBuild(e.to_string()))?;
+        for line in BufReader::new(file).lines() {
+            if let Ok(line) = line {
+                if line == "build() {" {
+                    return Ok(true);
+                }
+            }
+        }
+        return Ok(false);
+    }
+
     pub fn new(conf: &Conf, pkg_name: &str) -> Result<Self, ParsingError> {
         let path = conf.server_dir.join("pkgs").join(pkg_name).join(".SRCINFO");
+        let build = Self::can_build(conf, pkg_name)?;
         if !path.exists() {
             let pkgs_dir = conf.server_dir.join("pkgs").join(pkg_name);
             let (status, out, _) =
@@ -113,23 +135,16 @@ impl SrcInfo {
                 return Err(ParsingError::Cmd(CmdError::from_output(out)));
             }
             let content = out.join("\n");
-            Self::parse(content.lines())
+            Self::parse(content.lines(), build)
         } else {
             let file = fs::File::open(path)?;
-            Self::parse(BufReader::new(file).lines().filter_map(|l| match l {
-                Ok(l) => Some(l),
-                Err(_) => None,
-            }))
-        }
-    }
-
-    pub fn check_hash(name: String) -> Self {
-        Self {
-            name,
-            version: "".to_string(),
-            release: "".to_string(),
-            deps: Vec::new(),
-            src: false,
+            Self::parse(
+                BufReader::new(file).lines().filter_map(|l| match l {
+                    Ok(l) => Some(l),
+                    Err(_) => None,
+                }),
+                build,
+            )
         }
     }
 }
@@ -285,8 +300,12 @@ pub fn download_all<'a>(
         done.insert(pkg.to_string(), pkg_build);
     }
     let mut res = HashSet::with_capacity(done.len());
-    for (_, infos) in done {
-        res.insert(infos);
+    for (pkg, infos) in done {
+        if infos.build {
+            res.insert(infos);
+        } else {
+            info!("[{}] Wont be build, it cannot be", pkg);
+        }
     }
     if !errored.is_empty() {
         error!("Issues while downloading pkgs: ");

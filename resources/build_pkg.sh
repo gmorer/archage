@@ -19,7 +19,7 @@ function cleanup() {
 trap cleanup EXIT ERR
 
 pacman_install() {
-  yes | pacman -Syu --cachedir /build/cache/pacman --noconfirm ccache mold $@
+  yes | pacman -S --cachedir /build/cache/pacman --noconfirm $@
 
   # Remove capabilities of files
   getcap /usr/sbin | cut -d' ' -f1 | while read line ; do setcap -r $line ; done
@@ -28,8 +28,8 @@ pacman_install() {
 init_system() {
 # Adding an builder user
   if ! id builder; then
+    yes | pacman -Syu --cachedir /build/cache/pacman --noconfirm git ccache mold $@
     useradd -U -M builder
-    pacman_install
     # pacman-key --refresh-keys
   fi
 }
@@ -37,7 +37,8 @@ init_system() {
 pacage_build() (
   local pkg=$1
   source PKGBUILD
-  pacman_install ${depends[@]} ${makedepends[@]}
+  # Check if variable is defined
+  pacman_install ${depends[@]} ${makedepends[@]} ${checkdepends[@]}
   chown -R builder:builder . $CCACHE_DIR /build/srcs
 
   local pkgdest=$(mktemp -d)
@@ -51,14 +52,14 @@ pacage_build() (
 pacage_get() (
   local pkg=$1
   source PKGBUILD
-  pacman_install ${depends[@]} ${makedepends[@]}
+  # pacman_install ${depends[@]} ${makedepends[@]}
   chown -R builder:builder . $CCACHE_DIR /build/srcs
 
   # To test makepkg --allsource
 
   # we remove old sources
   rm -rf /build/srcs/$pkg
-  runuser -u builder -m -- makepkg -f -c --skippgpcheck --config /build/makepkg.conf --nobuild
+  runuser -u builder -m -- makepkg -f -c --nodeps --nocheck --skippgpcheck --config /build/makepkg.conf --nobuild
   # maybe it should print some info in the src dir
 )
 

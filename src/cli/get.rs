@@ -1,4 +1,5 @@
 use clap::Args;
+use log::error;
 
 use crate::builder;
 use crate::patch::patch;
@@ -20,6 +21,10 @@ pub struct Get {
     /// Save the package in the mconf
     #[arg(long)]
     pub save: bool,
+
+    /// Will not stop on error from the package or its depencies
+    #[arg(long)]
+    pub continue_on_error: bool,
 }
 
 impl CliCmd for Get {
@@ -40,14 +45,44 @@ impl CliCmd for Get {
                 .get(&pkgbuild.name)
                 .map(|p| p.makepkg.as_ref())
                 .flatten();
-            builder
+            if let Err(e) = builder
                 .download_src(&conf, &pkgbuild.name, makepkg)
-                .map_err(cmd_err)?;
-            patch(&conf, &pkgbuild).map_err(cmd_err)?;
-            builder
+                .map_err(cmd_err)
+            {
+                if self.continue_on_error {
+                    error!("[{}] Source download error: {}", pkgbuild.name, e);
+                    continue;
+                } else {
+                    return Err(e);
+                }
+            }
+            if let Err(e) = patch(&conf, &pkgbuild).map_err(cmd_err) {
+                if self.continue_on_error {
+                    error!("[{}] Patch error: {}", pkgbuild.name, e);
+                    continue;
+                } else {
+                    return Err(e);
+                }
+            }
+            if let Err(e) = builder
                 .build_pkg(conf, &pkgbuild.name, makepkg)
-                .map_err(cmd_err)?;
-            repo::add(&conf, &pkgbuild.name).map_err(cmd_err)?;
+                .map_err(cmd_err)
+            {
+                if self.continue_on_error {
+                    error!("[{}] Build error: {}", pkgbuild.name, e);
+                    continue;
+                } else {
+                    return Err(e);
+                }
+            }
+            if let Err(e) = repo::add(&conf, &pkgbuild.name).map_err(cmd_err) {
+                if self.continue_on_error {
+                    error!("[{}] Database error: {}", pkgbuild.name, e);
+                    continue;
+                } else {
+                    return Err(e);
+                }
+            }
         }
         Ok(())
     }
