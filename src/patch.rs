@@ -6,7 +6,7 @@ use std::io::{self, ErrorKind};
 use std::path::PathBuf;
 use thiserror::Error;
 
-use crate::cmd::{command, out_to_file, write_last_lines, ExecError};
+use crate::cmd::{command, out_to_file, write_last_lines, ExecError, NOENV};
 use crate::download::SrcInfo;
 
 // Create a patch: diff  -Naru  ex-070224{,.patched} > file.patch
@@ -69,7 +69,7 @@ pub fn patch(conf: &Conf, pkg: &SrcInfo) -> Result<Option<()>, PatchError> {
         return Ok(None);
     }
     let patch_dir_path = conf.conf_dir.join("patchs").join(&pkg.name);
-    let patch_dir = match read_dir(patch_dir_path) {
+    let patch_dir = match read_dir(&patch_dir_path) {
         Ok(d) => d,
         Err(e) => {
             return if e.kind() != ErrorKind::NotFound {
@@ -91,6 +91,7 @@ pub fn patch(conf: &Conf, pkg: &SrcInfo) -> Result<Option<()>, PatchError> {
         }
     };
     info!("[{}] found src dir: {}", pkg.name, pkg_src.display());
+    let mut patches = Vec::new();
     for file in patch_dir {
         let file = match file {
             Ok(file) => file,
@@ -111,35 +112,32 @@ pub fn patch(conf: &Conf, pkg: &SrcInfo) -> Result<Option<()>, PatchError> {
             _ => {}
         };
         if file.path().extension() == Some(OsStr::new("patch")) {
-            info!("[{}] applying {}...", pkg.name, file.path().display());
-            let (status, out, _) = command(
-                &[
-                    "bash",
-                    "-c",
-                    &format!("patch -p1 < {}", file.path().as_path().display()),
-                ],
-                &pkg_src,
-            )?;
-            if !status.success() {
-                error!(
-                    "[{}] Failed to apply patch {:?}",
-                    pkg.name,
-                    file.path().file_name()
-                );
-                write_last_lines(&out, 10);
-                match out_to_file(conf, &pkg.name, "patch", &out, false) {
-                    Ok(Some(file)) => info!("Full failed patch writed to {}", file),
-                    Ok(None) => {}
-                    Err(e) => error!("Failed to write patch output to logs: {}", e),
-                }
-                Err(PatchError::PatchApply())?
-            } else {
-                info!(
-                    "[{}] Successfully applied {:?}",
-                    pkg.name,
-                    file.path().file_name()
-                )
+            patches.push(file.file_name().to_string_lossy().to_string());
+        }
+    }
+    patches.sort();
+    for patch in patches {
+        info!("[{}] applying {}...", pkg.name, patch);
+        let (status, out, _) = command(
+            &[
+                "bash",
+                "-c",
+                &format!("patch -p1 < {}", patch_dir_path.join(&patch).display()),
+            ],
+            &pkg_src,
+            NOENV,
+        )?;
+        if !status.success() {
+            error!("[{}] Failed to apply patch {:?}", pkg.name, patch,);
+            write_last_lines(&out, 10);
+            match out_to_file(conf, &pkg.name, "patch", &out, false) {
+                Ok(Some(file)) => info!("Full failed patch writed to {}", file),
+                Ok(None) => {}
+                Err(e) => error!("Failed to write patch output to logs: {}", e),
             }
+            Err(PatchError::PatchApply())?
+        } else {
+            info!("[{}] Successfully applied {:?}", pkg.name, patch)
         }
     }
     File::create(patch_marker)?;

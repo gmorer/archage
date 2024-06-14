@@ -86,12 +86,27 @@ ccache = false
 
 ```
 
+## Conf dir
+```
+├ pacage.toml          # Main configuration file
+├ resolve.toml         # File use to link specific repo to pkg name
+│
+├ patches/             # Per package patch dir
+│ ├ glibc/
+│ │ ├ 01_tests.patch   # patch for a package sources
+│ │ └ [..]
+│ └ [..]/
+│
+```
+
 # TODOS:
 - [x] pacman cache
 - [x] Patch
 - [x] Implement the cli commented in src/cli.rs
-- [ ] Find a solution to find pkgbase from pkgname
-- [ ] dependencies (will allow groups)
+- [-] ~use gitoxide~ (to big of a dependency)
+- [x] Find a solution to find pkgbase from pkgname
+- [x] dependencies (will allow groups)
+- [ ] use custom git url (AUR)
 - [ ] Test some big packages (base, base-devel, chromium, firefox)
 - [ ] handle split pkg: List of pkgbase and a list of pkgname with a ref to pkgbase
 - [ ] Get max ram usage (podman-stats)

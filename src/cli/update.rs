@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use clap::Args;
 
 use crate::builder;
@@ -29,7 +31,7 @@ impl CliCmd for Update {
 
 impl Update {
     fn update_one(&self, conf: &Conf, name: &str) -> Result<(), i32> {
-        let pkgbuilds = download_pkg(&conf, &name, self.force_rebuild).map_err(cmd_err)?;
+        let pkgbuilds = download_pkg(&conf, &name, self.force_rebuild, false).map_err(cmd_err)?;
         if !builder::should_build(&pkgbuilds) {
             println!("Nothing to do :)");
             return Ok(());
@@ -57,8 +59,11 @@ impl Update {
     }
 
     fn update_all(&self, conf: &Conf) -> Result<(), i32> {
-        let pkgbuilds =
-            download_all(&conf, &conf.packages, self.force_rebuild, false).map_err(cmd_err)?;
+        let mut to_dl = BTreeSet::new();
+        for (k, _) in &conf.packages {
+            to_dl.insert(k.to_string());
+        }
+        let pkgbuilds = download_all(&conf, to_dl, self.force_rebuild, true).map_err(cmd_err)?;
         // Check whats installed
         if !builder::should_build(&pkgbuilds) {
             println!("Nothing to do :)");

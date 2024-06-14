@@ -7,8 +7,8 @@ use std::path::Path;
 use tar::Archive;
 use thiserror::Error;
 
-use crate::cmd::command;
 use crate::cmd::write_last_lines;
+use crate::cmd::{command, NOENV};
 use crate::conf::Conf;
 
 #[derive(Debug, Error)]
@@ -156,7 +156,11 @@ pub fn add(conf: &Conf, name: &str) -> Result<(), String> {
         // Move the package next to the db
         let tmp = Path::new(&conf.server_dir).join("repo").join(&package_file);
         let moved_package_file = tmp.as_os_str().to_string_lossy();
-        match command(&["repo-add", &db, &moved_package_file], &conf.server_dir) {
+        match command(
+            &["repo-add", &db, &moved_package_file],
+            &conf.server_dir,
+            NOENV,
+        ) {
             Ok((status, _, _)) if status.success() => {}
             Ok((_, out, _)) => {
                 error!("[{}] Failed to add the package to the db ->", name);

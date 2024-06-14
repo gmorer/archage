@@ -1,5 +1,6 @@
 use log::{debug, error};
 use nix::sys::epoll::{Epoll, EpollCreateFlags, EpollEvent, EpollFlags};
+use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{BufWriter, Error as IoError, ErrorKind as IoErrorKind, Write};
 use std::os::fd::{AsFd, AsRawFd};
@@ -9,6 +10,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
 use crate::Conf;
+
+pub const NOENV: Option<Vec<(String, String)>> = None::<Vec<(String, String)>>;
 
 #[derive(Debug, Error)]
 pub enum ExecError {
@@ -56,9 +59,14 @@ fn _command(mut cmd: Command) -> Result<(ExitStatus, Vec<String>, Duration), Exe
     // TODO: put a timer as well
     let start = Instant::now();
     let mut output = Vec::new();
-    let mut child = cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+    let mut child = cmd
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
 
     let poll = Epoll::new(EpollCreateFlags::empty())?;
+    child.stdin.take().map(|fd| drop(fd));
     let stdout = child
         .stdout
         .take()
@@ -124,17 +132,23 @@ fn _command(mut cmd: Command) -> Result<(ExitStatus, Vec<String>, Duration), Exe
     Ok((status, output, start.elapsed()))
 }
 
-pub fn command<P>(
+pub fn command<P, E, K, V>(
+    // pub fn command<P>(
     args: &[&str],
     current_dir: P,
+    envs: Option<E>,
 ) -> Result<(ExitStatus, Vec<String>, Duration), ExecError>
 where
     P: AsRef<Path>,
+    E: IntoIterator<Item = (K, V)>,
+    K: AsRef<OsStr>,
+    V: AsRef<OsStr>,
 {
     assert!(args.len() > 0);
     let mut cmd = Command::new(args[0]);
     cmd.args(&args[1..]);
     cmd.current_dir(current_dir);
+    envs.map(|e| cmd.envs(e));
     _command(cmd)
 }
 

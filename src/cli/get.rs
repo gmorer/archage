@@ -24,7 +24,8 @@ pub struct Get {
 
 impl CliCmd for Get {
     fn execute(&self, conf: &crate::Conf) -> Result<(), i32> {
-        let pkgbuilds = download_pkg(&conf, &self.name, self.force_rebuild).map_err(cmd_err)?;
+        let pkgbuilds =
+            download_pkg(&conf, &self.name, self.force_rebuild, true).map_err(cmd_err)?;
         if !builder::should_build(&pkgbuilds) {
             println!("Nothing to do :)");
             return Ok(());

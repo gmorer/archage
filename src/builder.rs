@@ -6,7 +6,7 @@ use std::io;
 use std::path::Path;
 use thiserror::Error;
 
-use crate::cmd::{command, out_to_file, write_last_lines, CmdError, ExecError};
+use crate::cmd::{command, out_to_file, write_last_lines, CmdError, ExecError, NOENV};
 use crate::download::SrcInfo;
 use crate::{Conf, DurationPrinter, BUILD_SCRIPT_FILE};
 
@@ -40,8 +40,8 @@ pub fn should_build(pkgbuilds: &HashSet<SrcInfo>) -> bool {
 impl Builder {
     fn stop_builder(container_runner: &str) {
         // Stop previous builds
-        command(&[container_runner, "stop", CONTAINER_NAME], "/").ok();
-        command(&[container_runner, "rm", CONTAINER_NAME], "/").ok();
+        command(&[container_runner, "stop", CONTAINER_NAME], "/", NOENV).ok();
+        command(&[container_runner, "rm", CONTAINER_NAME], "/", NOENV).ok();
     }
 
     pub fn new(conf: &Conf) -> Result<Self, BuilderError> {
@@ -71,6 +71,7 @@ impl Builder {
                 "sleep infinity",
             ],
             &conf.server_dir,
+            NOENV,
         )?;
         if !status.success() {
             error!("Fail to spawn builder");
@@ -89,6 +90,7 @@ impl Builder {
                 "start",
             ],
             &conf.server_dir,
+            NOENV,
         )?;
         match out_to_file(conf, "pacage_builder", "start", &out, status.success()) {
             Ok(Some(file)) => info!("Start logs writed to {}", file),
@@ -130,6 +132,7 @@ impl Builder {
                 name,
             ],
             &conf.server_dir,
+            NOENV,
         )?;
         match out_to_file(conf, name, "get", &out, status.success()) {
             Ok(Some(file)) => info!("[{}] Get logs writed to {}", name, file),
@@ -170,6 +173,7 @@ impl Builder {
                 name,
             ],
             &conf.server_dir,
+            NOENV,
         )?;
         match out_to_file(conf, name, "build", &out, status.success()) {
             Ok(Some(file)) => info!("[{}] Build logs writed to {}", name, file),

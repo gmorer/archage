@@ -1,4 +1,4 @@
-use log::error;
+use log::{error, warn};
 use serde::Deserialize;
 use std::fs;
 use std::path::PathBuf;
@@ -133,9 +133,44 @@ pub struct Conf {
     // TODO(feat):
     // pub log_on_error: Option<bool>
     pub deps: Option<bool>,
+
+    // Never serialized.
+    #[serde(skip_serializing)]
+    pub resolver: HashMap<String, String>,
 }
 
 impl Conf {
+    const RESOLVE_FILE: &'static str = "resolve.toml";
+
+    pub fn parse_resolver(conf_dir: &PathBuf) -> HashMap<String, String> {
+        let mut res = HashMap::new();
+        let resolver_path = conf_dir.join("resolve.toml");
+        if !resolver_path.exists() {
+            return res;
+        }
+        let f = match read_to_string(conf_dir.join(Self::RESOLVE_FILE)) {
+            Ok(f) => f,
+            Err(e) => {
+                error!("Failed to read {}: {}", Self::RESOLVE_FILE, e);
+                return res;
+            }
+        };
+        let g = match f.parse::<Table>() {
+            Ok(g) => g,
+            Err(e) => {
+                error!("Failed to parse {}: {}", Self::RESOLVE_FILE, e);
+                return res;
+            }
+        };
+        for (k, v) in g.into_iter() {
+            if let Some(v) = v.as_str() {
+                res.insert(k.to_string(), v.to_string());
+            } else {
+                warn!("Invalid value in {}, {} -> {:?}", Self::RESOLVE_FILE, k, v);
+            }
+        }
+        res
+    }
     pub fn new(conf_dir: Option<&str>) -> Result<Self, ConfError> {
         // TODO: full dir from root
         let conf_dir = match fs::canonicalize(conf_dir.unwrap_or(DEFAULT_CONF_DIR)) {
@@ -204,7 +239,9 @@ impl Conf {
                 }
             }
         }
+        let resolver = Self::parse_resolver(&conf_dir);
         Ok(Self {
+            resolver,
             container_runner,
             server_dir,
             conf_dir,
