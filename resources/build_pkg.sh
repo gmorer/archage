@@ -9,6 +9,7 @@ set -x
 
 # For makepkg sources outputs
 export BUILDDIR=/build/srcs
+export PATH=$PATH:/usr/bin/vendor_perl
 
 function cleanup() {
   # echo "Cleaning up build directory"
@@ -28,13 +29,21 @@ pacman_install() {
 init_system() {
 # Adding an builder user
   if ! id builder; then
-    yes | pacman -Syu --cachedir /build/cache/pacman --noconfirm git ccache mold $@
+    yes | pacman -Syu --cachedir /build/cache/pacman --noconfirm git ccache mold glibc-locales  $@
     useradd -U -M builder
+
+    # Local stuff
+    localedef -c -f UTF-8 -i en_US en_US.UTF-8
+    export LC_ALL=en_US.UTF-8
+    export LANG=en_US.UTF-8
+    echo "LANG=en_US.UTF-8" > /etc/locale.conf
+
     # pacman-key --refresh-keys
   fi
 }
 
 pacage_build() (
+  env
   local pkg=$1
   source PKGBUILD
   # Check if variable is defined
@@ -43,7 +52,7 @@ pacage_build() (
 
   local pkgdest=$(mktemp -d)
   chown -R builder:builder $pkgdest
-  PKGDEST=$pkgdest runuser -u builder -m -- makepkg -f --skippgpcheck --config /build/makepkg.conf --noextract
+  PKGDEST=$pkgdest runuser -u builder -m -- makepkg -f --skippgpcheck --skipinteg --config /build/makepkg.conf --noextract
   mv $pkgdest/* /build/repo
   runuser -u builder -- makepkg --printsrcinfo > .SRCINFO
   ccache -s
@@ -52,14 +61,14 @@ pacage_build() (
 pacage_get() (
   local pkg=$1
   source PKGBUILD
-  # pacman_install ${depends[@]} ${makedepends[@]}
+  pacman_install ${depends[@]} ${makedepends[@]} ${checkdepends[@]}
   chown -R builder:builder . $CCACHE_DIR /build/srcs
 
   # To test makepkg --allsource
 
   # we remove old sources
   rm -rf /build/srcs/$pkg
-  runuser -u builder -m -- makepkg -f -c --nodeps --nocheck --skippgpcheck --config /build/makepkg.conf --nobuild
+  runuser -u builder -m -- makepkg -f -c --nodeps --nocheck --skippgpcheck --skipinteg --config /build/makepkg.conf --nobuild
   # maybe it should print some info in the src dir
 )
 

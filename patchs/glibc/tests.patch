@@ -1,10 +1,10 @@
 diff '--color=auto' -ruN glibc/src/glibc/io/Makefile glibc.patched/src/glibc/io/Makefile
 --- glibc/io/Makefile	2024-05-06 18:59:40.259304430 +0000
 +++ glibc.patched/io/Makefile	2024-05-06 19:06:51.460154712 +0000
-@@ -218,7 +218,6 @@
+@@ -218,7 +218,5 @@
    tst-readlinkat \
    tst-renameat \
-   tst-stat \
+-  tst-stat \
 -  tst-stat-lfs \
    tst-statvfs \
    tst-symlinkat \

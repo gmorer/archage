@@ -119,6 +119,10 @@ impl Builder {
             Path::new(&conf.server_dir).join("makepkg.conf"),
             Makepkg::get_conf_file(&conf, makepkgconf, name)?,
         )?;
+        let src_path = conf.pkg_src(name);
+        if src_path.exists() {
+            fs::remove_dir_all(conf.pkg_src(name))?;
+        }
         info!("[{}] downloading the sources...", name);
         let (status, out, _) = command(
             &[
