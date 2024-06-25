@@ -1,4 +1,4 @@
-use crate::conf::Makepkg;
+use crate::conf::{Makepkg, Package};
 use log::{error, info};
 use std::collections::HashSet;
 use std::fs::{self};
@@ -157,13 +157,15 @@ impl Builder {
     pub fn build_pkg(
         &self,
         conf: &Conf,
-        name: &str,
-        makepkgconf: Option<&Makepkg>,
+        pkg: &Package,
+        // makepkgconf: Option<&Makepkg>,
     ) -> Result<(), BuilderError> {
+        let name = &pkg.name;
         info!("[{}] Building/packaging the sources...", name);
+        let makepkgconf = pkg.makepkg.as_ref();
         fs::write(
             Path::new(&conf.server_dir).join("makepkg.conf"),
-            Makepkg::get_conf_file(&conf, makepkgconf, name)?,
+            Makepkg::get_conf_file(conf, makepkgconf, name)?,
         )?;
         let (status, out, elapsed) = command(
             &[

@@ -7,6 +7,7 @@ use crate::Conf;
 mod build;
 mod download;
 mod get;
+mod patch;
 mod status;
 mod update;
 
@@ -36,7 +37,7 @@ pub fn cmd_err(e: impl Display) -> i32 {
 }
 
 pub trait CliCmd {
-    fn execute(&self, conf: &Conf) -> Result<(), i32>;
+    fn execute(&self, conf: Conf) -> Result<(), i32>;
 }
 
 #[derive(Parser, Debug)]
@@ -66,16 +67,20 @@ enum Commands {
     Update(update::Update),
     /// Check status
     Status(status::Status),
+    /// Patch utilities
+    #[command(subcommand)]
+    Patch(patch::Patch),
 }
 
 impl CliCmd for Commands {
-    fn execute(&self, conf: &Conf) -> Result<(), i32> {
+    fn execute(&self, conf: Conf) -> Result<(), i32> {
         match self {
-            Commands::Get(a) => a.execute(&conf),
-            Commands::Download(a) => a.execute(&conf),
-            Commands::Build(a) => a.execute(&conf),
-            Commands::Update(a) => a.execute(&conf),
-            Commands::Status(a) => a.execute(&conf),
+            Commands::Get(a) => a.execute(conf),
+            Commands::Download(a) => a.execute(conf),
+            Commands::Build(a) => a.execute(conf),
+            Commands::Update(a) => a.execute(conf),
+            Commands::Status(a) => a.execute(conf),
+            Commands::Patch(a) => a.execute(conf),
         }
     }
 }
@@ -87,7 +92,7 @@ impl Cli {
 }
 
 impl CliCmd for Cli {
-    fn execute(&self, conf: &crate::Conf) -> Result<(), i32> {
+    fn execute(&self, conf: crate::Conf) -> Result<(), i32> {
         self.command.execute(conf)
     }
 }

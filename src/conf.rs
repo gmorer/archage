@@ -2,11 +2,22 @@ use log::{error, warn};
 use serde::Deserialize;
 use std::fs;
 use std::path::PathBuf;
-use std::{collections::HashMap, fs::read_to_string};
+use std::{
+    collections::{HashMap, HashSet},
+    fs::read_to_string,
+};
 use thiserror::Error;
 use toml::{Table, Value};
 
 const DEFAULT_CONF_DIR: &str = "/etc/pacage";
+
+pub const fn default_bool<const V: bool>() -> bool {
+    V
+}
+
+fn default_name() -> String {
+    "/".to_string()
+}
 
 #[derive(Debug, Error)]
 pub enum ConfError {
@@ -22,12 +33,60 @@ fn default_server() -> PathBuf {
     PathBuf::from("/tmp/archage")
 }
 
-#[derive(Deserialize, Debug, Default)]
+#[derive(Deserialize, Debug)]
+#[serde(try_from = "String")]
+pub enum Repo {
+    None,
+    Aur,
+    Git(String),
+    File(String),
+}
+
+impl TryFrom<String> for Repo {
+    type Error = String;
+
+    fn try_from(mut value: String) -> Result<Self, Self::Error> {
+        if value == "aur" {
+            Ok(Self::Aur)
+        } else if value.starts_with("https://") {
+            Ok(Self::Git(value))
+        } else if value.starts_with("file://") {
+            value.drain(..7);
+            Ok(Self::File(value))
+        } else {
+            Err("Invalid Repo should be \"aur\", \"https://...\" or \"file://...\"".to_string())
+        }
+    }
+}
+impl std::default::Default for Repo {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+#[derive(Deserialize, Debug)]
 pub struct Package {
-    // name should be there :/
+    // Name is set just after serialization
+    #[serde(default = "default_name")]
+    pub name: String,
     pub makepkg: Option<Makepkg>,
     pub deps: Option<bool>,
+    #[serde(default)]
+    pub repo: Repo,
 }
+
+impl std::hash::Hash for Package {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+    }
+}
+
+impl std::cmp::PartialEq for Package {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
+}
+impl std::cmp::Eq for Package {}
 
 fn write_value(file: &mut String, key: &str, value: Option<&String>, def: Option<&String>) {
     if let Some(v) = value.or(def) {
@@ -115,27 +174,22 @@ impl Makepkg {
     }
 }
 
-#[derive(Deserialize, Debug, Default)]
+#[derive(Debug)]
 pub struct Conf {
     pub container_runner: String,
-    #[serde(default = "default_server")]
     pub server_dir: PathBuf,
+    pub host_server_dir: Option<PathBuf>,
+    pub build_log_dir: Option<PathBuf>,
+    // pub log_on_error: Option<bool>
+    pub deps: bool,
 
     pub conf_dir: PathBuf,
     // Server dir seen by the container runtime (ex. usage: podman-remote)
-    pub host_server_dir: Option<PathBuf>,
-
-    pub packages: HashMap<String, Package>,
+    pub packages: HashSet<Package>,
     // TODO: container_runner: (podman, docker...)
     pub makepkg: Option<Makepkg>,
 
-    pub build_log_dir: Option<PathBuf>,
-    // TODO(feat):
-    // pub log_on_error: Option<bool>
-    pub deps: Option<bool>,
-
     // Never serialized.
-    #[serde(skip_serializing)]
     pub resolver: HashMap<String, String>,
 }
 
@@ -182,7 +236,7 @@ impl Conf {
         };
         let f = read_to_string(conf_dir.join("pacage.toml"))?;
         let g = f.parse::<Table>()?;
-        let mut packages = HashMap::new();
+        let mut packages = HashSet::new();
         let container_runner = match g.get("container_runner") {
             None => "docker".to_string(),
             Some(Value::String(runner)) => runner.clone(),
@@ -216,8 +270,8 @@ impl Conf {
             )))?,
         };
         let deps = match g.get("deps") {
-            None => None,
-            Some(Value::Boolean(deps)) => Some(*deps),
+            None => false,
+            Some(Value::Boolean(deps)) => *deps,
             Some(a) => Err(ConfError::Format(format!("Invalid \"deps\": {:?}", a)))?,
         };
         let makepkg: Option<Makepkg> = match g.get("makepkg") {
@@ -233,7 +287,10 @@ impl Conf {
             if name.as_str() != "makepkg" {
                 if let Value::Table(t) = v {
                     match t.try_into::<Package>() {
-                        Ok(p) => packages.insert(name, p),
+                        Ok(mut p) => {
+                            p.name = name.to_string();
+                            packages.insert(p)
+                        }
                         Err(e) => Err(e)?,
                     };
                 }
@@ -273,12 +330,40 @@ impl Conf {
         }
     }
 
-    pub fn need_deps(&self, name: &str) -> bool {
-        if let Some(pkg) = self.packages.get(name) {
-            if let Some(deps) = pkg.deps {
-                return deps;
-            }
-        }
-        self.deps.unwrap_or(false)
+    pub fn need_deps(&self, pkg: &Package) -> bool {
+        return pkg.deps.unwrap_or(self.deps);
     }
+
+    pub fn ensure_pkg(&mut self, name: &str) {
+        if self.packages.iter().find(|p| p.name == name).is_some() {
+            return;
+        }
+        let new = Package {
+            name: name.to_string(),
+            makepkg: None,
+            deps: None,
+            repo: Repo::None,
+        };
+        self.packages.insert(new);
+    }
+
+    pub fn get(&self, name: &str) -> &Package {
+        self.packages.iter().find(|p| p.name == name).expect("aa")
+    }
+
+    // TODO: fix rust polonius
+    // pub fn get_or_insert(&mut self, name: &str) -> &Package {
+    //     if let Some(p) = self.packages.iter().find(|p| p.name == name) {
+    //         return p;
+    //     }
+    //     let new = Package {
+    //         name: name.to_string(),
+    //         makepkg: None,
+    //         deps: None,
+    //         repo: Repo::None,
+    //     };
+    //     // TODO(nightly): https://doc.rust-lang.org/stable/std/collections/struct.HashSet.html#method.get_or_insert
+    //     self.packages.insert(new);
+    //     return self.packages.iter().find(|p| p.name == name).unwrap();
+    // }
 }

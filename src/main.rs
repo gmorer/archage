@@ -16,7 +16,7 @@ pub mod cli;
 use cli::Cli;
 
 pub mod builder;
-mod repo;
+mod db;
 
 use crate::cli::CliCmd;
 
@@ -96,7 +96,7 @@ fn main() {
             std::process::exit(2);
         }
     };
-    if let Err(e) = args.execute(&conf) {
+    if let Err(e) = args.execute(conf) {
         std::process::exit(e)
     }
 

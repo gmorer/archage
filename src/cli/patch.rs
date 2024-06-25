@@ -1,0 +1,223 @@
+use std::{
+    env,
+    fs::{self, File},
+    io::Write,
+    path::{Component, PathBuf},
+};
+
+use clap::{Args, Subcommand};
+
+use crate::{
+    builder::Builder,
+    cli::cmd_err,
+    cmd::{command, NOENV},
+    download::{fetch_pkg, SrcInfo},
+    patch::{self, find_src},
+    Conf,
+};
+
+use super::CliCmd;
+
+#[derive(Subcommand, Debug)]
+pub enum Patch {
+    /// Show the diff
+    Diff(Diff),
+    /// Save the patch
+    Save(Save),
+    /// Create/Open a patch for a project
+    Open(Open),
+}
+
+#[derive(Args, Debug)]
+pub struct Open {
+    /// Package name
+    pub name: String,
+}
+impl CliCmd for Open {
+    fn execute(&self, mut conf: Conf) -> Result<(), i32> {
+        let name = &self.name;
+        conf.ensure_pkg(name);
+        let pkg = conf.get(name);
+        let srcinfo = if !conf.pkg_dir(name).exists() {
+            fetch_pkg(&conf, pkg).map_err(cmd_err)?
+        } else {
+            SrcInfo::new(&conf, name).map_err(cmd_err)?
+        };
+        if srcinfo.src == false {
+            eprintln!("The package doesnt contain sources");
+            return Err(2);
+        }
+        // TODO: maybe if orig and patched dir exist we dont download/cleanup and just cd into it
+        let builder = Builder::new(&conf).map_err(cmd_err)?;
+        builder
+            .download_src(&conf, name, pkg.makepkg.as_ref())
+            .map_err(cmd_err)?;
+        drop(builder);
+        let Some(orig) = find_src(&conf, &srcinfo) else {
+            eprintln!("Failed to find packages sources for {}", name);
+            return Err(2);
+        };
+        let new = get_patched_dir(&orig)?;
+        if let Ok(current_dir) = env::current_dir() {
+            if current_dir.starts_with(&new) {
+                eprintln!("The user is in the patched directory, cannot clean it");
+                return Err(2);
+            }
+        }
+        patch::patch(&conf, &srcinfo).map_err(cmd_err)?;
+        if new.exists() {
+            if let Err(e) = fs::remove_dir_all(&new) {
+                eprintln!("Failed to cleaning up old patch dir: {}", e);
+                return Err(2);
+            }
+        }
+        // use cp ?
+        if let Err(e) = copy_dir::copy_dir(orig, &new) {
+            eprintln!("Failed to copying package sources: {}", e);
+            return Err(2);
+        }
+        println!("patched dir created in {}", new.to_string_lossy());
+        Ok(())
+    }
+}
+
+#[derive(Args, Debug)]
+pub struct Save {
+    /// Package name
+    pub name: Option<String>,
+}
+impl CliCmd for Save {
+    fn execute(&self, conf: Conf) -> Result<(), i32> {
+        let (diff, name) = get_diff(&conf, self.name.as_ref())?;
+        let patch_path = conf.conf_dir.join("patchs").join(&name);
+        // TODO(improvment): write the patch then delete file that were there
+        if patch_path.exists() {
+            if let Err(e) = fs::remove_dir_all(&patch_path) {
+                eprintln!("Failed to remove odl patches dir: {}", e);
+                return Err(2);
+            }
+        }
+        if let Err(e) = fs::create_dir_all(&patch_path) {
+            eprintln!("Failed to create the new patch dir: {}", e);
+            return Err(2);
+        }
+
+        let patch_path = patch_path.join("pacage.patch");
+        let mut file = File::create(&patch_path).map_err(cmd_err)?;
+
+        file.write_all(&diff.as_bytes()).map_err(cmd_err)?;
+        if let Err(e) = fs::remove_dir_all(conf.server_dir.join("srcs").join(name)) {
+            eprintln!("Fail to remove source directory: {}", e);
+        }
+        println!("Patch write to {}", patch_path.to_string_lossy());
+        // TODO: remove patched dir
+        Ok(())
+    }
+}
+
+#[derive(Args, Debug)]
+pub struct Diff {
+    /// Package name
+    pub name: Option<String>,
+}
+impl CliCmd for Diff {
+    fn execute(&self, conf: Conf) -> Result<(), i32> {
+        let (diff, _) = get_diff(&conf, self.name.as_ref())?;
+        println!("{}", diff);
+        Ok(())
+    }
+}
+
+impl CliCmd for Patch {
+    fn execute(&self, conf: Conf) -> Result<(), i32> {
+        match self {
+            Self::Diff(s) => s.execute(conf),
+            Self::Save(s) => s.execute(conf),
+            Self::Open(o) => o.execute(conf),
+        }
+    }
+}
+
+// Soooo, the diff fails with symbolic links
+fn get_diff(
+    conf: &Conf,
+    name: Option<&String>,
+) -> Result<(String /* diff */, String /* pkg name */), i32> {
+    let name = if let Some(name) = name {
+        name.clone()
+    } else {
+        get_pwd_pkg(&conf)?
+    };
+    let srcinfo = SrcInfo::new(&conf, &name).map_err(cmd_err)?;
+    let Some(mut orig_path) = find_src(&conf, &srcinfo) else {
+        eprintln!("Failed to find packages sources for {}", name);
+        return Err(2);
+    };
+    let new_path = get_patched_dir(&orig_path)?;
+    let Some(new_dir) = new_path.file_name() else {
+        eprintln!(
+            "Failed to find patched src dir name for {}.patched",
+            orig_path.to_string_lossy()
+        );
+        return Err(2);
+    };
+    let Some(orig_dir) = orig_path.file_name() else {
+        eprintln!(
+            "Failed to find src dir name for {}",
+            orig_path.to_string_lossy()
+        );
+        return Err(2);
+    };
+    let orig_dir = orig_dir.to_string_lossy().to_string();
+    let new = new_dir.to_string_lossy();
+    orig_path.pop();
+    println!("{:?}", &["diff", "-ruN", &orig_dir, &new]);
+    println!("dir: {:?}", &orig_path);
+    let (status, cmd, _) = match command(&["diff", "-ruN", &orig_dir, &new], &orig_path, NOENV) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Failed to execute the diff command: {}", e);
+            return Err(2);
+        }
+    };
+    if !status.success() {
+        eprintln!("Failed to excute the diff:\n{} ", cmd.join("\n"));
+        Err(2)
+    } else {
+        Ok((cmd.join("\n"), name))
+    }
+}
+
+fn get_pwd_pkg(conf: &Conf) -> Result<String, i32> {
+    let current_dir = match env::current_dir() {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("Fail to get current directory: {}", e);
+            return Err(2);
+        }
+    };
+    let srcs = conf.server_dir.join("srcs");
+    let Ok(path) = current_dir.strip_prefix(srcs) else {
+        eprintln!("You should be in the patched directory to use this command, or spicify <NAME>");
+        return Err(2);
+    };
+    let Some(name) = path.components().next() else {
+        eprintln!("You should be in the patched directory to use this command, or spicify <NAME>");
+        return Err(2);
+    };
+    let Component::Normal(name) = name else {
+        eprintln!("You should be in the patched directory to use this command, or spicify <NAME>");
+        return Err(2);
+    };
+    Ok(name.to_string_lossy().to_string())
+}
+
+fn get_patched_dir(orig: &PathBuf) -> Result<PathBuf, i32> {
+    let Some(dirname) = orig.file_name() else {
+        eprintln!("Invalid src dir name: {}", orig.to_string_lossy());
+        return Err(2);
+    };
+    let mut dest = orig.clone();
+    dest.pop();
+    Ok(dest.join(format!("{}.patched", dirname.to_string_lossy())))
+}

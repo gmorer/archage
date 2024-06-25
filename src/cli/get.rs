@@ -5,8 +5,8 @@ use crate::builder;
 use crate::patch::patch;
 use crate::{
     cli::{cmd_err, CliCmd},
+    db,
     download::download_pkg,
-    repo,
 };
 
 #[derive(Args, Debug)]
@@ -28,9 +28,8 @@ pub struct Get {
 }
 
 impl CliCmd for Get {
-    fn execute(&self, conf: &crate::Conf) -> Result<(), i32> {
-        let pkgbuilds =
-            download_pkg(&conf, &self.name, self.force_rebuild, true).map_err(cmd_err)?;
+    fn execute(&self, mut conf: crate::Conf) -> Result<(), i32> {
+        let pkgbuilds = download_pkg(&mut conf, &self.name, true).map_err(cmd_err)?;
         if !builder::should_build(&pkgbuilds) {
             println!("Nothing to do :)");
             return Ok(());
@@ -40,11 +39,9 @@ impl CliCmd for Get {
             if pkgbuild.src == false {
                 continue;
             }
-            let makepkg = conf
-                .packages
-                .get(&pkgbuild.name)
-                .map(|p| p.makepkg.as_ref())
-                .flatten();
+            conf.ensure_pkg(&pkgbuild.name);
+            let pkg = conf.get(&pkgbuild.name);
+            let makepkg = pkg.makepkg.as_ref();
             if let Err(e) = builder
                 .download_src(&conf, &pkgbuild.name, makepkg)
                 .map_err(cmd_err)
@@ -64,10 +61,7 @@ impl CliCmd for Get {
                     return Err(e);
                 }
             }
-            if let Err(e) = builder
-                .build_pkg(conf, &pkgbuild.name, makepkg)
-                .map_err(cmd_err)
-            {
+            if let Err(e) = builder.build_pkg(&conf, pkg).map_err(cmd_err) {
                 if self.continue_on_error {
                     error!("[{}] Build error: {}", pkgbuild.name, e);
                     continue;
@@ -75,7 +69,7 @@ impl CliCmd for Get {
                     return Err(e);
                 }
             }
-            if let Err(e) = repo::add(&conf, &pkgbuild.name).map_err(cmd_err) {
+            if let Err(e) = db::add(&conf, &pkgbuild.name).map_err(cmd_err) {
                 if self.continue_on_error {
                     error!("[{}] Database error: {}", pkgbuild.name, e);
                     continue;

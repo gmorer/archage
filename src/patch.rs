@@ -80,17 +80,6 @@ pub fn patch(conf: &Conf, pkg: &SrcInfo) -> Result<Option<()>, PatchError> {
             }
         }
     };
-    let pkg_src = match find_src(conf, pkg) {
-        Some(src) => src,
-        None => {
-            error!("[{}] Fail to find src dir to apply patches", pkg.name);
-            Err(std::io::Error::new(
-                ErrorKind::NotFound,
-                "Could not find source dir",
-            ))?
-        }
-    };
-    info!("[{}] found src dir: {}", pkg.name, pkg_src.display());
     let mut patches = Vec::new();
     for file in patch_dir {
         let file = match file {
@@ -115,6 +104,20 @@ pub fn patch(conf: &Conf, pkg: &SrcInfo) -> Result<Option<()>, PatchError> {
             patches.push(file.file_name().to_string_lossy().to_string());
         }
     }
+    if patches.is_empty() {
+        return Ok(None);
+    }
+    let pkg_src = match find_src(conf, pkg) {
+        Some(src) => src,
+        None => {
+            error!("[{}] Fail to find src dir to apply patches", pkg.name);
+            Err(std::io::Error::new(
+                ErrorKind::NotFound,
+                "Could not find source dir",
+            ))?
+        }
+    };
+    info!("[{}] found src dir: {}", pkg.name, pkg_src.display());
     patches.sort();
     for patch in patches {
         info!("[{}] applying {}...", pkg.name, patch);

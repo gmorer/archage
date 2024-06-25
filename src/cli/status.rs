@@ -6,7 +6,7 @@ use crate::cli::CliCmd;
 use crate::download::SrcInfo;
 use clap::Args;
 
-use crate::repo::{self, DbPackage};
+use crate::db::{self, DbPackage};
 
 use super::cmd_err;
 
@@ -20,7 +20,7 @@ pub struct Status {
 type StatusPkg = (Option<SrcInfo>, Option<DbPackage>);
 
 impl CliCmd for Status {
-    fn execute(&self, conf: &crate::Conf) -> Result<(), i32> {
+    fn execute(&self, conf: crate::Conf) -> Result<(), i32> {
         if self.pull {
             unimplemented!();
         }
@@ -33,7 +33,7 @@ impl CliCmd for Status {
                     if typ.is_dir() {
                         let name = file.file_name();
                         let name = name.to_string_lossy();
-                        let pkg = SrcInfo::new(conf, name.as_ref()).map_err(cmd_err)?;
+                        let pkg = SrcInfo::new(&conf, name.as_ref()).map_err(cmd_err)?;
                         name_max_len = max(name_max_len, pkg.name.len());
                         version_max_len = max(version_max_len, pkg.version.len());
                         res.insert(pkg.name.clone(), (Some(pkg), None));
@@ -41,7 +41,7 @@ impl CliCmd for Status {
                 }
             }
         }
-        for p in repo::list(&conf).map_err(cmd_err)? {
+        for p in db::list(&conf).map_err(cmd_err)? {
             if let Some((_, ref mut pkg)) = res.get_mut(&p.name) {
                 name_max_len = max(name_max_len, p.name.len());
                 version_max_len = max(version_max_len, p.version.len());
@@ -50,11 +50,12 @@ impl CliCmd for Status {
                 res.insert(p.name.clone(), (None, Some(p)));
             }
         }
-        for (name, _) in &conf.packages {
-            name_max_len = max(name_max_len, name.len());
+        for pkg in &conf.packages {
+            name_max_len = max(name_max_len, pkg.name.len());
         }
         let max_len = name_max_len + version_max_len + 2;
-        for (name, _) in &conf.packages {
+        for pkg in &conf.packages {
+            let name = &pkg.name;
             if let Some(pkg) = res.remove(name) {
                 match pkg {
                     (Some(src), Some(db)) => {

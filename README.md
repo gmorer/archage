@@ -106,6 +106,7 @@ ccache = false
 - [-] ~use gitoxide~ (to big of a dependency)
 - [x] Find a solution to find pkgbase from pkgname
 - [x] dependencies (will allow groups)
+- [ ] Use custom copy_dir to fix links issue in systemd
 - [ ] Get rid of zombies pids in between builds 
 - [ ] have a default options for makepkg, remove all the options
 - [ ] Add option skip integrity check (instead of always, its a fix for glibc)

@@ -18,9 +18,9 @@ pub struct Download {
 }
 
 impl CliCmd for Download {
-    fn execute(&self, conf: &crate::Conf) -> Result<(), i32> {
+    fn execute(&self, mut conf: crate::Conf) -> Result<(), i32> {
         let pkgbuilds =
-            download_pkg(&conf, &self.name, true, self.continue_on_error).map_err(cmd_err)?;
+            download_pkg(&mut conf, &self.name, self.continue_on_error).map_err(cmd_err)?;
         if self.only_pkgbuild {
             println!("PKGBUILD downloaded");
             return Ok(());
@@ -29,11 +29,9 @@ impl CliCmd for Download {
             println!("Nothing to do :)");
             return Ok(());
         }
-        let makepkg = conf
-            .packages
-            .get(&self.name)
-            .map(|p| p.makepkg.as_ref())
-            .flatten();
+        conf.ensure_pkg(&self.name);
+        let pkg = conf.get(&self.name);
+        let makepkg = pkg.makepkg.as_ref();
         let builder = builder::Builder::new(&conf).map_err(cmd_err)?;
         for pkgbuild in pkgbuilds {
             builder

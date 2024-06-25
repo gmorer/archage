@@ -3,9 +3,9 @@ use std::borrow::Borrow;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::io::{self, BufRead, BufReader};
-use std::path::PathBuf;
 
 use crate::cmd::{command, CmdError, ExecError, NOENV};
+use crate::conf::{Package, Repo};
 use crate::Conf;
 use thiserror::Error;
 
@@ -111,6 +111,7 @@ impl SrcInfo {
     }
 
     // Not the best way :/
+    // TODO: dont do that
     fn can_build(conf: &Conf, pkg_name: &str) -> Result<bool, ParsingError> {
         let path = conf.server_dir.join("pkgs").join(pkg_name).join("PKGBUILD");
         let file = fs::File::open(path).map_err(|e| ParsingError::PkgBuild(e.to_string()))?;
@@ -174,71 +175,90 @@ pub enum DownloadError {
 
 // const PARALLEL_DOWNLOAD: usize = 5;
 
-fn fetch_pkg(conf: &Conf, pkg: &str) -> Result<SrcInfo, DownloadError> {
-    let pkg = conf.resolver.get(pkg).map(|a| a.as_str()).unwrap_or(pkg);
-    let pkgs_dir = conf.server_dir.join("pkgs");
-    let (status, out, _) = command(
-        &["pkgctl", "repo", "clone", "--protocol=https", &pkg],
-        &pkgs_dir,
-        Some([("GIT_TERMINAL_PROMPT", "0")]),
-    )?;
-    if status.success() {
-        info!("[{}] Download package", pkg);
-        Ok(SrcInfo::new(conf, pkg)?)
-    } else {
-        error!("[{}] Failed to download", pkg);
-        Err(DownloadError::NotFound(out))?
-        // Err(CmdError::from_output(out))?
+pub fn fetch_pkg(conf: &Conf, pkg: &Package) -> Result<SrcInfo, DownloadError> {
+    let pkg_dir = conf.pkg_dir(&pkg.name);
+    if pkg_dir.exists() {
+        fs::remove_dir_all(pkg_dir).ok();
+    }
+    match &pkg.repo {
+        Repo::None => {
+            let pkg = conf
+                .resolver
+                .get(&pkg.name)
+                .map(|a| a.as_str())
+                .unwrap_or(pkg.name.as_str());
+            let pkgs_dir = conf.server_dir.join("pkgs");
+            let (status, out, _) = command(
+                &["pkgctl", "repo", "clone", "--protocol=https", &pkg],
+                &pkgs_dir,
+                Some([("GIT_TERMINAL_PROMPT", "0")]),
+            )?;
+            if status.success() {
+                info!("[{}] Download package", pkg);
+                Ok(SrcInfo::new(conf, pkg)?)
+            } else {
+                error!("[{}] Failed to download", pkg);
+                Err(DownloadError::NotFound(out))?
+                // Err(CmdError::from_output(out))?
+            }
+        }
+        Repo::Aur => {
+            unimplemented!()
+        }
+        Repo::Git(_a) => {
+            unimplemented!()
+        }
+        Repo::File(_d) => {
+            unimplemented!()
+        }
     }
 }
 
-fn update_pkg(conf: &Conf, pkg: &str, pkg_dir: &PathBuf) -> Result<(bool, SrcInfo), DownloadError> {
-    info!("[{}] git rev-parse HEAD", pkg);
-    let (status, previous, _) = command(
-        &["git", "rev-parse", "HEAD"],
-        &pkg_dir,
-        None::<Vec<(String, String)>>,
-    )?;
-    if !status.success() {
-        return Err((CmdError::from_output(previous)).into());
-    };
+// fn update_pkg(conf: &Conf, pkg: &str, pkg_dir: &PathBuf) -> Result<(bool, SrcInfo), DownloadError> {
+//     info!("[{}] git rev-parse HEAD", pkg);
+//     let (status, previous, _) = command(
+//         &["git", "rev-parse", "HEAD"],
+//         &pkg_dir,
+//         None::<Vec<(String, String)>>,
+//     )?;
+//     if !status.success() {
+//         return Err((CmdError::from_output(previous)).into());
+//     };
 
-    info!("[{}] git pull", pkg);
-    let (status, out, _) = command(&["git", "pull"], &pkg_dir, NOENV)?;
-    if !status.success() {
-        Err(CmdError::from_output(out))?
-    }
+//     info!("[{}] git pull", pkg);
+//     let (status, out, _) = command(&["git", "pull"], &pkg_dir, NOENV)?;
+//     if !status.success() {
+//         Err(CmdError::from_output(out))?
+//     }
 
-    info!("[{}] git rev-parse HEAD", pkg);
-    /* Getting the new version */
-    let (status, new, _) = command(&["git", "rev-parse", "HEAD"], pkg_dir, NOENV)?;
-    if !status.success() {
-        return Err((CmdError::from_output(new)).into());
-    }
-    let pkg_build = SrcInfo::new(conf, pkg)?;
-    if previous.get(0) != new.get(0) {
-        Ok((true, pkg_build))
-    } else {
-        Ok((false, pkg_build))
-    }
-}
+//     info!("[{}] git rev-parse HEAD", pkg);
+//     /* Getting the new version */
+//     let (status, new, _) = command(&["git", "rev-parse", "HEAD"], pkg_dir, NOENV)?;
+//     if !status.success() {
+//         return Err((CmdError::from_output(new)).into());
+//     }
+//     let pkg_build = SrcInfo::new(conf, pkg)?;
+//     if previous.get(0) != new.get(0) {
+//         Ok((true, pkg_build))
+//     } else {
+//         Ok((false, pkg_build))
+//     }
+// }
 
 // TODO: check for deps there
 pub fn download_pkg(
-    conf: &Conf,
+    conf: &mut Conf,
     name: &str,
-    force_rebuild: bool,
     continue_on_err: bool,
 ) -> Result<HashSet<SrcInfo>, DownloadError> {
     let mut pkgs = BTreeSet::new();
     pkgs.insert(name.to_string());
-    download_all(conf, pkgs, force_rebuild, continue_on_err)
+    download_all(conf, pkgs, continue_on_err)
 }
 
 pub fn download_all<'a>(
-    conf: &'a Conf,
+    conf: &'a mut Conf,
     mut pkgs: BTreeSet<String>,
-    force_rebuild: bool,
     continue_on_err: bool,
 ) -> Result<HashSet<SrcInfo>, DownloadError> {
     let mut done: HashMap<String, SrcInfo> = HashMap::new();
@@ -249,46 +269,19 @@ pub fn download_all<'a>(
             continue;
         }
         info!("[{}] Downloading...", pkg);
-        let pkg_dir = conf.pkg_dir(&pkg);
-        let exist = pkg_dir.exists();
-        let pkg_build =
-            if exist && pkg_dir.join(".git").exists() && pkg_dir.join("PKGBUILD").exists() {
-                match update_pkg(conf, &pkg, &pkg_dir) {
-                    Ok((true, pkg_build)) => pkg_build,
-                    Ok((false, pkg_build)) => {
-                        if force_rebuild {
-                            pkg_build
-                        } else {
-                            // Up to date
-                            info!("[{}] Was up to date", pkg);
-                            continue;
-                        }
-                    }
-                    Err(e) => {
-                        if continue_on_err {
-                            errored.insert(pkg.to_string(), e);
-                            continue;
-                        } else {
-                            return Err(e);
-                        }
-                    }
+        conf.ensure_pkg(pkg.as_str());
+        let pkg = conf.get(&pkg);
+        let pkg_build = match fetch_pkg(conf, &pkg) {
+            Ok(p) => p,
+            Err(e) => {
+                if continue_on_err {
+                    errored.insert(pkg.name.clone(), e);
+                    continue;
+                } else {
+                    return Err(e);
                 }
-            } else {
-                if exist {
-                    fs::remove_dir_all(pkg_dir).ok();
-                }
-                match fetch_pkg(conf, &pkg) {
-                    Ok(p) => p,
-                    Err(e) => {
-                        if continue_on_err {
-                            errored.insert(pkg.to_string(), e);
-                            continue;
-                        } else {
-                            return Err(e);
-                        }
-                    }
-                }
-            };
+            }
+        };
         if conf.need_deps(&pkg) {
             for dep in &pkg_build.deps {
                 if !done.contains_key(dep) && !errored.contains_key(dep) {
@@ -296,16 +289,17 @@ pub fn download_all<'a>(
                 }
             }
         }
-        info!("[{}] Downloaded", pkg);
-        done.insert(pkg.to_string(), pkg_build);
+        info!("[{}] Downloaded", pkg.name);
+        // TODO: no clone
+        done.insert(pkg.name.clone(), pkg_build);
     }
     let mut res = HashSet::with_capacity(done.len());
     for (pkg, infos) in done {
-        if infos.build {
-            res.insert(infos);
-        } else {
-            info!("[{}] Wont be build, it cannot be", pkg);
-        }
+        // if infos.build {
+        res.insert(infos);
+        // } else {
+        // info!("[{}] Wont be build, it cannot be", pkg);
+        // }
     }
     if !errored.is_empty() {
         error!("Issues while downloading pkgs: ");
