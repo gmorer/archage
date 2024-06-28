@@ -1,3 +1,4 @@
+use crate::utils::copy_dir::copy_dir;
 use std::{
     env,
     fs::{self, File},
@@ -72,7 +73,7 @@ impl CliCmd for Open {
             }
         }
         // use cp ?
-        if let Err(e) = copy_dir::copy_dir(orig, &new) {
+        if let Err(e) = copy_dir(orig, &new) {
             eprintln!("Failed to copying package sources: {}", e);
             return Err(2);
         }
@@ -106,9 +107,10 @@ impl CliCmd for Save {
         let mut file = File::create(&patch_path).map_err(cmd_err)?;
 
         file.write_all(&diff.as_bytes()).map_err(cmd_err)?;
-        if let Err(e) = fs::remove_dir_all(conf.server_dir.join("srcs").join(name)) {
-            eprintln!("Fail to remove source directory: {}", e);
-        }
+        // TODO: maybe dont do that
+        // if let Err(e) = fs::remove_dir_all(conf.server_dir.join("srcs").join(name)) {
+        // eprintln!("Fail to remove source directory: {}", e);
+        // }
         println!("Patch write to {}", patch_path.to_string_lossy());
         // TODO: remove patched dir
         Ok(())
@@ -171,20 +173,25 @@ fn get_diff(
     let orig_dir = orig_dir.to_string_lossy().to_string();
     let new = new_dir.to_string_lossy();
     orig_path.pop();
-    println!("{:?}", &["diff", "-ruN", &orig_dir, &new]);
     println!("dir: {:?}", &orig_path);
-    let (status, cmd, _) = match command(&["diff", "-ruN", &orig_dir, &new], &orig_path, NOENV) {
+    let (status, cmd, _) = match command(
+        &["diff", "--no-dereference", "-ruN", &orig_dir, &new],
+        &orig_path,
+        NOENV,
+    ) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("Failed to execute the diff command: {}", e);
             return Err(2);
         }
     };
-    if !status.success() {
-        eprintln!("Failed to excute the diff:\n{} ", cmd.join("\n"));
-        Err(2)
-    } else {
-        Ok((cmd.join("\n"), name))
+    // Diff return 1 if it differ and 2 if error
+    match status.code() {
+        Some(0) | Some(1) => Ok((cmd.join("\n"), name)),
+        _ => {
+            eprintln!("Failed to excute the diff:\n{} ", cmd.join("\n"));
+            Err(2)
+        }
     }
 }
 

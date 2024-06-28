@@ -7,6 +7,8 @@ use std::time::Duration;
 pub mod conf;
 pub use conf::Conf;
 
+pub mod utils;
+
 // pub mod builder;
 pub mod patch;
 
