@@ -106,11 +106,9 @@ ccache = false
 - [-] ~use gitoxide~ (to big of a dependency)
 - [x] Find a solution to find pkgbase from pkgname
 - [x] dependencies (will allow groups)
-- [ ] Use custom copy_dir to fix links issue in systemd
+- [x] use custom git url (AUR)
+- [ ] update cmd to update installed pkgs
 - [ ] Get rid of zombies pids in between builds 
-- [ ] have a default options for makepkg, remove all the options
-- [ ] Add option skip integrity check (instead of always, its a fix for glibc)
-- [ ] use custom git url (AUR)
 - [ ] Test some big packages (base, base-devel, chromium, firefox)
 - [ ] handle split pkg: List of pkgbase and a list of pkgname with a ref to pkgbase
 - [ ] Get max ram usage (podman-stats)

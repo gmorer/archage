@@ -30,7 +30,7 @@ impl CliCmd for Download {
             return Ok(());
         }
         conf.ensure_pkg(&self.name);
-        let pkg = conf.get(&self.name);
+        let pkg = conf.get(self.name.clone());
         let makepkg = pkg.makepkg.as_ref();
         let builder = builder::Builder::new(&conf).map_err(cmd_err)?;
         for pkgbuild in pkgbuilds {

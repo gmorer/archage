@@ -62,18 +62,13 @@ pub fn find_src(conf: &Conf, pkg: &SrcInfo) -> Option<PathBuf> {
     return None;
 }
 
-// TODO: mark folder as patched
-pub fn patch(conf: &Conf, pkg: &SrcInfo) -> Result<Option<()>, PatchError> {
-    let patch_marker = conf.pkg_src(&pkg.name).join(".pacage_patched");
-    if patch_marker.exists() {
-        return Ok(None);
-    }
-    let patch_dir_path = conf.conf_dir.join("patchs").join(&pkg.name);
+pub fn get_patches(conf: &Conf, name: &str) -> Result<Option<Vec<String>>, PatchError> {
+    let patch_dir_path = conf.conf_dir.join("patchs").join(name);
     let patch_dir = match read_dir(&patch_dir_path) {
         Ok(d) => d,
         Err(e) => {
             return if e.kind() != ErrorKind::NotFound {
-                error!("[{}] Fail to open patch dir: {}", pkg.name, e);
+                error!("[{}] Fail to open patch dir: {}", name, e);
                 Err(e)?
             } else {
                 Ok(None)
@@ -85,25 +80,64 @@ pub fn patch(conf: &Conf, pkg: &SrcInfo) -> Result<Option<()>, PatchError> {
         let file = match file {
             Ok(file) => file,
             Err(e) => {
-                error!(
-                    "[{}] Could not get file metadata in patch dir: {}",
-                    pkg.name, e
-                );
+                error!("[{}] Could not get file metadata in patch dir: {}", name, e);
                 continue;
             }
         };
         match file.file_type() {
             Ok(typ) if !typ.is_file() => continue,
             Err(e) => {
-                error!("[{}] Failed to check file type: {}", pkg.name, e);
+                error!("[{}] Failed to check file type: {}", name, e);
                 continue;
             }
             _ => {}
         };
         if file.path().extension() == Some(OsStr::new("patch")) {
-            patches.push(file.file_name().to_string_lossy().to_string());
+            patches.push(file.path().to_string_lossy().to_string());
         }
     }
+    patches.sort();
+    Ok(Some(patches))
+}
+
+pub fn patch_dir(
+    conf: &Conf,
+    dir: &PathBuf,
+    name: &str,
+    patches: Vec<String>,
+) -> Result<(), PatchError> {
+    for patch in patches {
+        info!("[{}] applying {}...", name, patch);
+        let (status, out, _) = command(
+            &["bash", "-c", &format!("patch -p1 < {}", &patch)],
+            &dir,
+            NOENV,
+        )?;
+        if !status.success() {
+            error!("[{}] Failed to apply patch {:?}", name, patch,);
+            write_last_lines(&out, 10);
+            match out_to_file(conf, name, "patch", &out, false) {
+                Ok(Some(file)) => info!("Full failed patch writed to {}", file),
+                Ok(None) => {}
+                Err(e) => error!("Failed to write patch output to logs: {}", e),
+            }
+            Err(PatchError::PatchApply())?
+        } else {
+            info!("[{}] Successfully applied {:?}", name, patch)
+        }
+    }
+    Ok(())
+}
+
+// TODO: dunno how to implement
+pub fn patch(conf: &Conf, pkg: &SrcInfo) -> Result<Option<()>, PatchError> {
+    let patch_marker = conf.pkg_src(&pkg.name).join(".pacage_patched");
+    if patch_marker.exists() {
+        return Ok(None);
+    }
+    let Some(patches) = get_patches(conf, &pkg.name)? else {
+        return Ok(None);
+    };
     if patches.is_empty() {
         return Ok(None);
     }
@@ -118,31 +152,7 @@ pub fn patch(conf: &Conf, pkg: &SrcInfo) -> Result<Option<()>, PatchError> {
         }
     };
     info!("[{}] found src dir: {}", pkg.name, pkg_src.display());
-    patches.sort();
-    for patch in patches {
-        info!("[{}] applying {}...", pkg.name, patch);
-        let (status, out, _) = command(
-            &[
-                "bash",
-                "-c",
-                &format!("patch -p1 < {}", patch_dir_path.join(&patch).display()),
-            ],
-            &pkg_src,
-            NOENV,
-        )?;
-        if !status.success() {
-            error!("[{}] Failed to apply patch {:?}", pkg.name, patch,);
-            write_last_lines(&out, 10);
-            match out_to_file(conf, &pkg.name, "patch", &out, false) {
-                Ok(Some(file)) => info!("Full failed patch writed to {}", file),
-                Ok(None) => {}
-                Err(e) => error!("Failed to write patch output to logs: {}", e),
-            }
-            Err(PatchError::PatchApply())?
-        } else {
-            info!("[{}] Successfully applied {:?}", pkg.name, patch)
-        }
-    }
+    patch_dir(conf, &pkg_src, &pkg.name, patches)?;
     File::create(patch_marker)?;
     Ok(Some(()))
 }

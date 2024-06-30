@@ -37,11 +37,12 @@ impl Update {
             println!("Nothing to do :)");
             return Ok(());
         }
-        conf.ensure_pkg(name);
+        let name = name.to_string();
+        conf.ensure_pkg(&name);
         let pkg = conf.get(name);
         let builder = builder::Builder::new(&conf).map_err(cmd_err)?;
         builder
-            .download_src(&conf, name, pkg.makepkg.as_ref())
+            .download_src(&conf, &pkg.name, pkg.makepkg.as_ref())
             .map_err(cmd_err)?;
         for pkgbuild in pkgbuilds {
             if pkgbuild.src == false {
@@ -49,7 +50,7 @@ impl Update {
             }
             patch(&conf, &pkgbuild).map_err(cmd_err)?;
             builder.build_pkg(&conf, pkg).map_err(cmd_err)?;
-            db::add(&conf, name).map_err(cmd_err)?;
+            db::add(&conf, &pkg.name).map_err(cmd_err)?;
         }
         Ok(())
     }
@@ -73,7 +74,7 @@ impl Update {
             }
             let name = &pkgbuild.name;
             conf.ensure_pkg(name);
-            let pkg = conf.get(name);
+            let pkg = conf.get(name.clone());
             let makepkg = pkg.makepkg.as_ref();
             builder
                 .download_src(&conf, name, makepkg)

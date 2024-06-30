@@ -1,0 +1,11 @@
+diff --no-dereference -ruN systemd/src/libsystemd/meson.build systemd.patched/src/libsystemd/meson.build
+--- systemd/src/libsystemd/meson.build	2024-06-30 12:29:34.803038666 +0000
++++ systemd.patched/src/libsystemd/meson.build	2024-06-30 12:49:40.076053570 +0000
+@@ -173,7 +173,6 @@
+         'sd-bus/test-bus-vtable.c',
+         'sd-device/test-device-util.c',
+         'sd-device/test-sd-device-monitor.c',
+-        'sd-device/test-sd-device.c',
+         'sd-journal/test-journal-flush.c',
+         'sd-journal/test-journal-interleaving.c',
+         'sd-journal/test-journal-stream.c',

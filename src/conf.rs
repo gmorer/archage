@@ -335,6 +335,7 @@ impl Conf {
     }
 
     pub fn ensure_pkg(&mut self, name: &str) {
+        let name = self.resolver.get(name).map(|a| a.as_str()).unwrap_or(name);
         if self.packages.iter().find(|p| p.name == name).is_some() {
             return;
         }
@@ -347,7 +348,13 @@ impl Conf {
         self.packages.insert(new);
     }
 
-    pub fn get(&self, name: &str) -> &Package {
+    // Name should not be used after this call, but pkg.name
+    pub fn get(&self, name: String) -> &Package {
+        let name = self
+            .resolver
+            .get(name.as_str())
+            .map(|a| a.as_str())
+            .unwrap_or(name.as_str());
         self.packages.iter().find(|p| p.name == name).expect("aa")
     }
 

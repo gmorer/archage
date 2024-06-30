@@ -40,14 +40,14 @@ impl CliCmd for Get {
                 continue;
             }
             conf.ensure_pkg(&pkgbuild.name);
-            let pkg = conf.get(&pkgbuild.name);
+            let pkg = conf.get(pkgbuild.name.clone());
             let makepkg = pkg.makepkg.as_ref();
             if let Err(e) = builder
-                .download_src(&conf, &pkgbuild.name, makepkg)
+                .download_src(&conf, &pkg.name, makepkg)
                 .map_err(cmd_err)
             {
                 if self.continue_on_error {
-                    error!("[{}] Source download error: {}", pkgbuild.name, e);
+                    error!("[{}] Source download error: {}", pkg.name, e);
                     continue;
                 } else {
                     return Err(e);
@@ -55,7 +55,7 @@ impl CliCmd for Get {
             }
             if let Err(e) = patch(&conf, &pkgbuild).map_err(cmd_err) {
                 if self.continue_on_error {
-                    error!("[{}] Patch error: {}", pkgbuild.name, e);
+                    error!("[{}] Patch error: {}", pkg.name, e);
                     continue;
                 } else {
                     return Err(e);
@@ -63,15 +63,15 @@ impl CliCmd for Get {
             }
             if let Err(e) = builder.build_pkg(&conf, pkg).map_err(cmd_err) {
                 if self.continue_on_error {
-                    error!("[{}] Build error: {}", pkgbuild.name, e);
+                    error!("[{}] Build error: {}", pkg.name, e);
                     continue;
                 } else {
                     return Err(e);
                 }
             }
-            if let Err(e) = db::add(&conf, &pkgbuild.name).map_err(cmd_err) {
+            if let Err(e) = db::add(&conf, &pkg.name).map_err(cmd_err) {
                 if self.continue_on_error {
-                    error!("[{}] Database error: {}", pkgbuild.name, e);
+                    error!("[{}] Database error: {}", pkg.name, e);
                     continue;
                 } else {
                     return Err(e);

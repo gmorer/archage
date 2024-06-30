@@ -24,12 +24,12 @@ impl CliCmd for Build {
         let builder = builder::Builder::new(&conf).map_err(cmd_err)?;
         patch(&conf, &pkg_build).map_err(cmd_err)?;
         conf.ensure_pkg(&self.name);
-        let pkg = conf.get(&self.name);
+        let pkg = conf.get(self.name.clone());
         builder
             .build_pkg(&conf, pkg)
             // .build_pkg(conf, &self.name, makepkg)
             .map_err(cmd_err)?;
-        db::add(&conf, &self.name).map_err(cmd_err)?;
+        db::add(&conf, &pkg.name).map_err(cmd_err)?;
         Ok(())
     }
 }

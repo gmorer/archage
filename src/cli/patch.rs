@@ -13,7 +13,7 @@ use crate::{
     cli::cmd_err,
     cmd::{command, NOENV},
     download::{fetch_pkg, SrcInfo},
-    patch::{self, find_src},
+    patch::{find_src, get_patches, patch_dir},
     Conf,
 };
 
@@ -33,16 +33,20 @@ pub enum Patch {
 pub struct Open {
     /// Package name
     pub name: String,
+
+    /// Overwite all previous patches
+    #[arg(long)]
+    pub overwrite: bool,
 }
 impl CliCmd for Open {
     fn execute(&self, mut conf: Conf) -> Result<(), i32> {
-        let name = &self.name;
-        conf.ensure_pkg(name);
+        let name = self.name.clone();
+        conf.ensure_pkg(&name);
         let pkg = conf.get(name);
-        let srcinfo = if !conf.pkg_dir(name).exists() {
+        let srcinfo = if !conf.pkg_dir(&pkg.name).exists() {
             fetch_pkg(&conf, pkg).map_err(cmd_err)?
         } else {
-            SrcInfo::new(&conf, name).map_err(cmd_err)?
+            SrcInfo::new(&conf, &pkg.name).map_err(cmd_err)?
         };
         if srcinfo.src == false {
             eprintln!("The package doesnt contain sources");
@@ -51,11 +55,11 @@ impl CliCmd for Open {
         // TODO: maybe if orig and patched dir exist we dont download/cleanup and just cd into it
         let builder = Builder::new(&conf).map_err(cmd_err)?;
         builder
-            .download_src(&conf, name, pkg.makepkg.as_ref())
+            .download_src(&conf, &pkg.name, pkg.makepkg.as_ref())
             .map_err(cmd_err)?;
         drop(builder);
         let Some(orig) = find_src(&conf, &srcinfo) else {
-            eprintln!("Failed to find packages sources for {}", name);
+            eprintln!("Failed to find packages sources for {}", pkg.name);
             return Err(2);
         };
         let new = get_patched_dir(&orig)?;
@@ -65,7 +69,6 @@ impl CliCmd for Open {
                 return Err(2);
             }
         }
-        patch::patch(&conf, &srcinfo).map_err(cmd_err)?;
         if new.exists() {
             if let Err(e) = fs::remove_dir_all(&new) {
                 eprintln!("Failed to cleaning up old patch dir: {}", e);
@@ -76,6 +79,16 @@ impl CliCmd for Open {
         if let Err(e) = copy_dir(orig, &new) {
             eprintln!("Failed to copying package sources: {}", e);
             return Err(2);
+        }
+        if !self.overwrite {
+            if let Some(patches) = get_patches(&conf, &pkg.name).map_err(cmd_err)? {
+                if !patches.is_empty() {
+                    if let Err(e) = patch_dir(&conf, &new, &pkg.name, patches) {
+                        eprintln!("Failed to use previous patch: {}", e);
+                        return Err(2);
+                    }
+                }
+            }
         }
         println!("patched dir created in {}", new.to_string_lossy());
         Ok(())
@@ -140,7 +153,6 @@ impl CliCmd for Patch {
     }
 }
 
-// Soooo, the diff fails with symbolic links
 fn get_diff(
     conf: &Conf,
     name: Option<&String>,

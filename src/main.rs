@@ -95,6 +95,7 @@ fn main() {
         Ok(c) => c,
         Err(e) => {
             error!("Failed to init: {}", e);
+            println!("hello");
             std::process::exit(2);
         }
     };

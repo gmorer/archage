@@ -180,37 +180,38 @@ pub fn fetch_pkg(conf: &Conf, pkg: &Package) -> Result<SrcInfo, DownloadError> {
     if pkg_dir.exists() {
         fs::remove_dir_all(pkg_dir).ok();
     }
-    match &pkg.repo {
-        Repo::None => {
-            let pkg = conf
-                .resolver
-                .get(&pkg.name)
-                .map(|a| a.as_str())
-                .unwrap_or(pkg.name.as_str());
-            let pkgs_dir = conf.server_dir.join("pkgs");
-            let (status, out, _) = command(
-                &["pkgctl", "repo", "clone", "--protocol=https", &pkg],
-                &pkgs_dir,
-                Some([("GIT_TERMINAL_PROMPT", "0")]),
-            )?;
-            if status.success() {
-                info!("[{}] Download package", pkg);
-                Ok(SrcInfo::new(conf, pkg)?)
-            } else {
-                error!("[{}] Failed to download", pkg);
-                Err(DownloadError::NotFound(out))?
-                // Err(CmdError::from_output(out))?
-            }
-        }
-        Repo::Aur => {
-            unimplemented!()
-        }
-        Repo::Git(_a) => {
-            unimplemented!()
-        }
+    let pkgs_dir = conf.server_dir.join("pkgs");
+    let (status, out, _) = match &pkg.repo {
+        Repo::None => command(
+            &["pkgctl", "repo", "clone", "--protocol=https", &pkg.name],
+            &pkgs_dir,
+            Some([("GIT_TERMINAL_PROMPT", "0")]),
+        )?,
+        Repo::Aur => command(
+            &[
+                "git",
+                "clone",
+                &format!("https://aur.archlinux.org/{}.git", pkg.name),
+            ],
+            &pkgs_dir,
+            Some([("GIT_TERMINAL_PROMPT", "0")]),
+        )?,
+        Repo::Git(a) => command(
+            &["git", "clone", &a],
+            &pkgs_dir,
+            Some([("GIT_TERMINAL_PROMPT", "0")]),
+        )?,
         Repo::File(_d) => {
             unimplemented!()
         }
+    };
+    if status.success() {
+        info!("[{}] Download package", pkg.name);
+        Ok(SrcInfo::new(conf, &pkg.name)?)
+    } else {
+        error!("[{}] Failed to download", pkg.name);
+        Err(DownloadError::NotFound(out))?
+        // Err(CmdError::from_output(out))?
     }
 }
 
@@ -270,7 +271,7 @@ pub fn download_all<'a>(
         }
         info!("[{}] Downloading...", pkg);
         conf.ensure_pkg(pkg.as_str());
-        let pkg = conf.get(&pkg);
+        let pkg = conf.get(pkg);
         let pkg_build = match fetch_pkg(conf, &pkg) {
             Ok(p) => p,
             Err(e) => {
@@ -294,7 +295,7 @@ pub fn download_all<'a>(
         done.insert(pkg.name.clone(), pkg_build);
     }
     let mut res = HashSet::with_capacity(done.len());
-    for (pkg, infos) in done {
+    for (_pkg, infos) in done {
         // if infos.build {
         res.insert(infos);
         // } else {
