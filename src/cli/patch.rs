@@ -12,7 +12,8 @@ use crate::{
     builder::Builder,
     cli::cmd_err,
     cmd::{command, NOENV},
-    download::{fetch_pkg, SrcInfo},
+    download::fetch_pkg,
+    format::SrcInfo,
     patch::{find_src, get_patches, patch_dir},
     Conf,
 };
@@ -104,10 +105,10 @@ impl CliCmd for Save {
     fn execute(&self, conf: Conf) -> Result<(), i32> {
         let (diff, name) = get_diff(&conf, self.name.as_ref())?;
         let patch_path = conf.conf_dir.join("patchs").join(&name);
-        // TODO(improvment): write the patch then delete file that were there
+        // TODO(improvment): write the patch then delete file that were there (atomic)
         if patch_path.exists() {
             if let Err(e) = fs::remove_dir_all(&patch_path) {
-                eprintln!("Failed to remove odl patches dir: {}", e);
+                eprintln!("Failed to remove old patches dir: {}", e);
                 return Err(2);
             }
         }
@@ -125,7 +126,6 @@ impl CliCmd for Save {
         // eprintln!("Fail to remove source directory: {}", e);
         // }
         println!("Patch write to {}", patch_path.to_string_lossy());
-        // TODO: remove patched dir
         Ok(())
     }
 }

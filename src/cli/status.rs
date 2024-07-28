@@ -3,10 +3,10 @@ use std::collections::HashMap;
 use std::fs::read_dir;
 
 use crate::cli::CliCmd;
-use crate::download::SrcInfo;
+use crate::format::{DbDesc, SrcInfo};
 use clap::Args;
 
-use crate::db::{self, DbPackage};
+use crate::db;
 
 use super::cmd_err;
 
@@ -17,7 +17,7 @@ pub struct Status {
     pub pull: bool,
 }
 
-type StatusPkg = (Option<SrcInfo>, Option<DbPackage>);
+type StatusPkg = (Option<SrcInfo>, Option<DbDesc>);
 
 impl CliCmd for Status {
     fn execute(&self, conf: crate::Conf) -> Result<(), i32> {

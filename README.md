@@ -107,7 +107,8 @@ ccache = false
 - [x] Find a solution to find pkgbase from pkgname
 - [x] dependencies (will allow groups)
 - [x] use custom git url (AUR)
-- [ ] update cmd to update installed pkgs
+- [ ] check for pkgbuild "epoch" example: https://gitlab.archlinux.org/archlinux/packaging/packages/egl-wayland/-/commit/e385ef755321b1f9dfb1d4a3972d6d96d7ef94c9
+- [ ] implement repo-add for custom fields (pkgrel)
 - [ ] Get rid of zombies pids in between builds 
 - [ ] Test some big packages (base, base-devel, chromium, firefox)
 - [ ] handle split pkg: List of pkgbase and a list of pkgname with a ref to pkgbase

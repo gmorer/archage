@@ -7,7 +7,7 @@ use std::path::Path;
 use thiserror::Error;
 
 use crate::cmd::{command, out_to_file, write_last_lines, CmdError, ExecError, NOENV};
-use crate::download::SrcInfo;
+use crate::format::SrcInfo;
 use crate::{Conf, DurationPrinter, BUILD_SCRIPT_FILE};
 
 const CONTAINER_NAME: &str = "pacage_builder";

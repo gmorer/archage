@@ -2,7 +2,7 @@ use std::{
     fs::{copy, create_dir_all, read_dir, read_link},
     io,
     os::unix::fs,
-    path::{Path, PathBuf},
+    path::PathBuf,
 };
 
 // fn create_dir_all(path: &Path) -> Result<(), io::Error> {

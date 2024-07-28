@@ -56,6 +56,9 @@ impl Update {
     }
 
     fn update_all(&self, mut conf: Conf) -> Result<(), i32> {
+        // TODO: get it from install db instead
+        // TODO: check if we have src from these, get SRCINFO from it
+        // TODO: redownload theses :/ (maybe we shoud not :/)
         let mut to_dl = BTreeSet::new();
         for k in &conf.packages {
             to_dl.insert(k.name.clone());

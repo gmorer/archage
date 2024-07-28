@@ -1,15 +1,15 @@
 use flate2::read::GzDecoder;
 use log::error;
-use std::fs;
-use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::fs::{self, File};
+use std::io::BufReader;
 use std::path::Path;
 use tar::Archive;
 use thiserror::Error;
 
-use crate::cmd::write_last_lines;
-use crate::cmd::{command, NOENV};
+use crate::cmd::{command, write_last_lines, NOENV};
 use crate::conf::Conf;
+
+use crate::format::DbDesc;
 
 #[derive(Debug, Error)]
 pub enum RepoError {
@@ -19,109 +19,24 @@ pub enum RepoError {
     Io(#[from] std::io::Error),
 }
 
-pub struct DbPackage {
-    pub name: String,
-    // https://gitlab.archlinux.org/pacman/pacman/-/blob/master/lib/libalpm/version.c
-    pub version: String,
-    arch: String,
-    packager: String,
-    build_date: u32,
-    // TODO:
-    // build time
-}
-
-impl DbPackage {
-    pub fn new(data: impl BufRead) -> Option<Self> {
-        enum Key {
-            Name,
-            Version,
-            Arch,
-            Packager,
-            BuildDate,
-        }
-        let mut key = None;
-        let mut name = None;
-        let mut version = None;
-        let mut arch = None;
-        let mut packager = None;
-        let mut build_date = None;
-        for line in data.lines() {
-            if let Ok(mut line) = line {
-                if line.is_empty() {
-                    key = None;
-                    continue;
-                }
-                match key {
-                    None => {
-                        key = match line.as_str() {
-                            "%NAME%" => Some(Key::Name),
-                            "%ARCH%" => Some(Key::Arch),
-                            "%VERSION%" => Some(Key::Version),
-                            "%BUILDDATE%" => Some(Key::BuildDate),
-                            "%PACKAGER%" => Some(Key::Packager),
-                            _ => None,
-                        }
-                    }
-                    Some(Key::Name) => {
-                        name = Some(line);
-                        key = None;
-                    }
-                    Some(Key::Version) => {
-                        // remove rel and buildnum
-                        if let Some(c) = line.find(':') {
-                            if c < line.len() {
-                                line = line[(c + 1)..].to_string();
-                            }
-                        }
-                        if let Some(c) = line.find('-') {
-                            version = Some(line[..c].to_string());
-                        } else {
-                            version = Some(line);
-                        }
-                        key = None;
-                    }
-                    Some(Key::Arch) => {
-                        arch = Some(line);
-                        key = None;
-                    }
-                    Some(Key::Packager) => {
-                        packager = Some(line);
-                        key = None;
-                    }
-                    Some(Key::BuildDate) => {
-                        build_date = match line.parse::<u32>() {
-                            Ok(ts) => Some(ts),
-                            Err(e) => {
-                                error!("Failed to parse timestamp({}): {}", line, e);
-                                None
-                            }
-                        };
-                        key = None;
-                    }
+pub fn list(conf: &Conf) -> Result<Vec<DbDesc>, RepoError> {
+    let mut pkgs = Vec::new();
+    let tar_gz = File::open(conf.get_repo()).map_err(|_| RepoError::NoRepo)?;
+    let tar = GzDecoder::new(tar_gz);
+    let mut archive = Archive::new(tar);
+    for entry in archive.entries()? {
+        if let Ok(entry) = entry {
+            if let Ok(path) = entry.path() {
+                if path
+                    .file_name()
+                    .is_some_and(|name| name.to_str() == Some("desc"))
+                {
+                    DbDesc::new(BufReader::new(entry)).map(|p| pkgs.push(p));
                 }
             }
-            if name.is_some()
-                && version.is_some()
-                && arch.is_some()
-                && packager.is_some()
-                && build_date.is_some()
-            {
-                return Some(Self {
-                    name: name.unwrap(),
-                    version: version.unwrap(),
-                    arch: arch.unwrap(),
-                    packager: packager.unwrap(),
-                    build_date: build_date.unwrap(),
-                });
-            }
         }
-        error!(
-            "Failed to parse package from db, missing fields, name: {:?}, version: {:?}, arch: {:?}, packager: {:?}, build_date: {:?}",
-            name, version, arch, packager, build_date,
-        );
-
-        None
     }
+    Ok(pkgs)
 }
 
 fn find_package(conf: &Conf, name: &str) -> Option<String> {
@@ -174,34 +89,4 @@ pub fn add(conf: &Conf, name: &str) -> Result<(), String> {
         error!("[{}] Failed to find package file", name);
     }
     Ok(())
-}
-
-// pub fn add_all(conf: &Conf, to_build: HashSet<PkgBuild>) {
-//     if to_build.is_empty() {
-//         info!("Nothing to add");
-//         return;
-//     }
-//     for pkg in to_build {
-//         add(conf, &pkg.name);
-//     }
-// }
-
-pub fn list(conf: &Conf) -> Result<Vec<DbPackage>, RepoError> {
-    let mut pkgs = Vec::new();
-    let tar_gz = File::open(conf.get_repo()).map_err(|_| RepoError::NoRepo)?;
-    let tar = GzDecoder::new(tar_gz);
-    let mut archive = Archive::new(tar);
-    for entry in archive.entries()? {
-        if let Ok(entry) = entry {
-            if let Ok(path) = entry.path() {
-                if path
-                    .file_name()
-                    .is_some_and(|name| name.to_str() == Some("desc"))
-                {
-                    DbPackage::new(BufReader::new(entry)).map(|p| pkgs.push(p));
-                }
-            }
-        }
-    }
-    Ok(pkgs)
 }

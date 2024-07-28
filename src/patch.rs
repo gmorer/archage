@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use thiserror::Error;
 
 use crate::cmd::{command, out_to_file, write_last_lines, ExecError, NOENV};
-use crate::download::SrcInfo;
+use crate::format::SrcInfo;
 
 // Create a patch: diff  -Naru  ex-070224{,.patched} > file.patch
 // Apply patch: patch -p1 < file.patch
@@ -129,7 +129,7 @@ pub fn patch_dir(
     Ok(())
 }
 
-// TODO: dunno how to implement
+// TODO: Real lock file (doesm this exist?)
 pub fn patch(conf: &Conf, pkg: &SrcInfo) -> Result<Option<()>, PatchError> {
     let patch_marker = conf.pkg_src(&pkg.name).join(".pacage_patched");
     if patch_marker.exists() {

@@ -3,7 +3,7 @@ use clap::Args;
 use crate::builder;
 use crate::cli::{cmd_err, CliCmd};
 use crate::db;
-use crate::download::SrcInfo;
+use crate::format::SrcInfo;
 use crate::patch::patch;
 
 #[derive(Args, Debug)]

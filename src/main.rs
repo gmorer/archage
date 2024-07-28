@@ -19,6 +19,7 @@ use cli::Cli;
 
 pub mod builder;
 mod db;
+mod format;
 
 use crate::cli::CliCmd;
 
