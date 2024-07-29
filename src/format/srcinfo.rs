@@ -49,6 +49,15 @@ pkgname = bash
 ========
 */
 
+// TODO: Caution, from arch wiki:
+// The following fields may, additionally, specify multiple architectures as shown below:
+// source_x86_64 = https://foo.bar/file.tar.gz
+// source_i686 = https://foo.bar/file_i686_patch.tar.gz
+//     source
+//     depends, checkdepends, makedepends, optdepends
+//     provides, conflicts, replaces
+//     md5sums, sha1sums, sha224sums, sha256sums, sha384sums, sha512sums
+
 #[derive(Debug, Error)]
 pub enum SrcInfoError {
     #[error("System command error: {0}")]

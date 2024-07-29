@@ -3,7 +3,7 @@ use thiserror::Error;
 mod db_desc;
 mod srcinfo;
 
-pub use db_desc::DbDesc;
+pub use db_desc::{DbDesc, DbDescError};
 pub use srcinfo::{SrcInfo, SrcInfoError};
 
 #[derive(Debug, Error)]

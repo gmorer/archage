@@ -1,5 +1,5 @@
 use log::{error, warn};
-use std::io;
+use std::io::{self, Write};
 use std::io::{BufRead, Lines};
 use thiserror::Error;
 
@@ -67,7 +67,34 @@ pub enum DbDescError {
     #[error("IO Error: {0}")]
     Io(#[from] io::Error),
 }
+mod desc {
+    pub const FILENAME: &str = "%FILENAME%";
+    pub const NAME: &str = "%NAME%";
+    pub const BASE: &str = "%BASE%";
+    pub const VERSION: &str = "%VERSION%";
+    pub const DESC: &str = "%DESC%";
+    pub const GROUPS: &str = "%GROUPS%";
+    pub const CSIZE: &str = "%CSIZE%";
+    pub const ISIZE: &str = "%ISIZE%";
+    pub const SHA256SUM: &str = "%SHA256SUM%";
+    pub const PGPSIG: &str = "%PGPSIG%";
+    pub const URL: &str = "%URL%";
+    pub const LICENSE: &str = "%LICENSE%";
+    pub const ARCH: &str = "%ARCH%";
+    pub const BUILDDATE: &str = "%BUILDDATE%";
+    pub const PACKAGER: &str = "%PACKAGER%";
+    pub const REPLACES: &str = "%REPLACES%";
+    pub const CONFLICTS: &str = "%CONFLICTS%";
+    pub const PROVIDES: &str = "%PROVIDES%";
+    pub const DEPENDS: &str = "%DEPENDS%";
+    pub const OPTDEPENDS: &str = "%OPTDEPENDS%";
+    pub const EPOCH: &str = "%EPOCH%";
+    pub const PKGREL: &str = "%PKGREL%";
+    pub const MAKEDEPENDS: &str = "%MAKEDEPENDS%";
+    pub const CHECKDEPENDS: &str = "%CHECKDEPENDS%";
+}
 
+#[derive(PartialEq, Eq, Debug)]
 pub struct DbDesc {
     // Original
     file_name: String,
@@ -195,88 +222,103 @@ impl DbDesc {
         while let Some(line) = lines.next() {
             if let Ok(line) = line {
                 if line.is_empty() {
-                    // key = None;
                     continue;
                 }
                 match line.as_str() {
-                    "%FILENAME%" => file_name = Some(get_val_string(&mut lines, "%FILENAME%")?),
-                    "%NAME%" => name = Some(get_val_string(&mut lines, "%NAME%")?),
-                    "%BASE%" => base = Some(get_val_string(&mut lines, "%BASE%")?),
-                    "%VERSION%" => version = Some(get_val_string(&mut lines, "%VERSION%")?),
-                    "%DESC%" => desc = Some(get_val_string(&mut lines, "%DESC%")?),
-                    "%GROUPS%" => groups = get_val_vec_string(&mut lines, "%GROUPS%")?,
-                    "%CSIZE%" => csize = Some(get_val_u32(&mut lines, "%CSIZE%")?),
-                    "%ISIZE%" => isize = Some(get_val_u32(&mut lines, "%ISIZE%")?),
-                    "%SHA256SUM%" => shasum = Some(get_val_string(&mut lines, "%SHA256SUM%")?),
-                    "%PGPSIG%" => pgpsig = Some(get_val_string(&mut lines, "%PGPSIG%")?),
-                    "%URL%" => url = Some(get_val_string(&mut lines, "%URL%")?),
-                    "%LICENSE%" => licenses = get_val_vec_string(&mut lines, "%LICENSE%")?,
-                    "%ARCH%" => arch = Some(get_val_string(&mut lines, "%ARCH%")?),
-                    "%BUILDDATE%" => builddate = Some(get_val_u32(&mut lines, "%BUILDDATE%")?),
-                    "%PACKAGER%" => packager = Some(get_val_string(&mut lines, "%PACKAGER%")?),
-                    "%REPLACES%" => replaces = get_val_vec_string(&mut lines, "%REPLACES%")?,
-                    "%CONFLICTS%" => conflicts = get_val_vec_string(&mut lines, "%CONFLICTS%")?,
-                    "%PROVIDES%" => provides = get_val_vec_string(&mut lines, "%PROVIDES%")?,
-                    "%DEPENDS%" => depends = get_val_vec_string(&mut lines, "%DEPENDS%")?,
-                    "%OPTDEPENDS%" => optdepends = get_val_vec_string(&mut lines, "%OPTDEPENDS%")?,
-                    "%MAKEDEPENDS%" => {
-                        makedepends = get_val_vec_string(&mut lines, "%MAKEDEPENDS%")?
+                    desc::FILENAME => file_name = Some(get_val_string(&mut lines, desc::FILENAME)?),
+                    desc::NAME => name = Some(get_val_string(&mut lines, desc::NAME)?),
+                    desc::BASE => base = Some(get_val_string(&mut lines, desc::BASE)?),
+                    desc::VERSION => version = Some(get_val_string(&mut lines, desc::VERSION)?),
+                    desc::DESC => desc = Some(get_val_string(&mut lines, desc::DESC)?),
+                    desc::GROUPS => groups = get_val_vec_string(&mut lines, desc::GROUPS)?,
+                    desc::CSIZE => csize = Some(get_val_u32(&mut lines, desc::CSIZE)?),
+                    desc::ISIZE => isize = Some(get_val_u32(&mut lines, desc::ISIZE)?),
+                    desc::SHA256SUM => shasum = Some(get_val_string(&mut lines, desc::SHA256SUM)?),
+                    desc::PGPSIG => pgpsig = Some(get_val_string(&mut lines, desc::PGPSIG)?),
+                    desc::URL => url = Some(get_val_string(&mut lines, desc::URL)?),
+                    desc::LICENSE => licenses = get_val_vec_string(&mut lines, desc::LICENSE)?,
+                    desc::ARCH => arch = Some(get_val_string(&mut lines, desc::ARCH)?),
+                    desc::BUILDDATE => builddate = Some(get_val_u32(&mut lines, desc::BUILDDATE)?),
+                    desc::PACKAGER => packager = Some(get_val_string(&mut lines, desc::PACKAGER)?),
+                    desc::REPLACES => replaces = get_val_vec_string(&mut lines, desc::REPLACES)?,
+                    desc::CONFLICTS => conflicts = get_val_vec_string(&mut lines, desc::CONFLICTS)?,
+                    desc::PROVIDES => provides = get_val_vec_string(&mut lines, desc::PROVIDES)?,
+                    desc::DEPENDS => depends = get_val_vec_string(&mut lines, desc::DEPENDS)?,
+                    desc::OPTDEPENDS => {
+                        optdepends = get_val_vec_string(&mut lines, desc::OPTDEPENDS)?
                     }
-                    "%CHECKDEPENDS%" => {
-                        checkdepends = get_val_vec_string(&mut lines, "%CHECKDEPENDS%")?
+                    desc::MAKEDEPENDS => {
+                        makedepends = get_val_vec_string(&mut lines, desc::MAKEDEPENDS)?
+                    }
+                    desc::CHECKDEPENDS => {
+                        checkdepends = get_val_vec_string(&mut lines, desc::CHECKDEPENDS)?
                     }
                     // Extension
-                    "%EPOCH%" => epoch = Some(get_val_u32(&mut lines, "%EPOCH%")?),
-                    "%PKGREL%" => pkgrel = Some(get_val_string(&mut lines, "%RELEASE%")?),
+                    desc::EPOCH => epoch = Some(get_val_u32(&mut lines, desc::EPOCH)?),
+                    desc::PKGREL => pkgrel = Some(get_val_string(&mut lines, desc::PKGREL)?),
                     a => warn!("DB desc unknown property: {}", a),
                 }
             }
         }
         let Some(file_name) = file_name else {
-            return Err(DbDescError::InvalidData(
-                "Missing %FILENAME% value".to_string(),
-            ));
+            return Err(DbDescError::InvalidData(format!(
+                "Missing {} value",
+                desc::FILENAME
+            )));
         };
         let Some(name) = name else {
-            return Err(DbDescError::InvalidData("Missing %NAME% value".to_string()));
+            return Err(DbDescError::InvalidData(format!(
+                "Missing {} value",
+                desc::NAME
+            )));
         };
         let Some(version) = version else {
-            return Err(DbDescError::InvalidData(
-                "Missing %VERSION% value".to_string(),
-            ));
+            return Err(DbDescError::InvalidData(format!(
+                "Missing {} value",
+                desc::VERSION
+            )));
         };
         let Some(isize) = isize else {
-            return Err(DbDescError::InvalidData(
-                "Missing %ISIZE% value".to_string(),
-            ));
+            return Err(DbDescError::InvalidData(format!(
+                "Missing {} value",
+                desc::ISIZE
+            )));
         };
         let Some(csize) = csize else {
-            return Err(DbDescError::InvalidData(
-                "Missing %CSIZE% value".to_string(),
-            ));
+            return Err(DbDescError::InvalidData(format!(
+                "Missing {} value",
+                desc::CSIZE
+            )));
         };
         let Some(shasum) = shasum else {
-            return Err(DbDescError::InvalidData(
-                "Missing %SHA256SUM% value".to_string(),
-            ));
+            return Err(DbDescError::InvalidData(format!(
+                "Missing {} value",
+                desc::SHA256SUM
+            )));
         };
         let Some(arch) = arch else {
-            return Err(DbDescError::InvalidData("Missing %ARCH% value".to_string()));
+            return Err(DbDescError::InvalidData(format!(
+                "Missing {} value",
+                desc::ARCH
+            )));
         };
         let Some(builddate) = builddate else {
-            return Err(DbDescError::InvalidData(
-                "Missing %BUILDDATE% value".to_string(),
-            ));
+            return Err(DbDescError::InvalidData(format!(
+                "Missing {} value",
+                desc::BUILDDATE
+            )));
         };
         let Some(packager) = packager else {
-            return Err(DbDescError::InvalidData(
-                "Missing %PACKAGER% value".to_string(),
-            ));
+            return Err(DbDescError::InvalidData(format!(
+                "Missing {} value",
+                desc::PACKAGER
+            )));
         };
         let Some(pkgrel) = pkgrel else {
-            return Err(DbDescError::InvalidData(
-                "Missing %PKGREL% value".to_string(),
-            ));
+            return Err(DbDescError::InvalidData(format!(
+                "Missing {} value",
+                desc::PKGREL
+            )));
         };
         Ok(Self {
             file_name,
@@ -304,5 +346,115 @@ impl DbDesc {
             pkgrel,
             epoch,
         })
+    }
+
+    fn write_list(
+        list: &Vec<String>,
+        writer: &mut impl Write,
+        key: &'static str,
+    ) -> Result<(), io::Error> {
+        if !list.is_empty() {
+            writer.write(b"\n\n")?;
+            writer.write(key.as_bytes())?;
+            for item in list {
+                writer.write(b"\n")?;
+                writer.write(item.as_bytes())?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn write(&self, mut writer: impl Write) -> Result<(), DbDescError> {
+        for (value, key) in [
+            (&self.file_name, desc::FILENAME),
+            (&self.name, desc::NAME),
+            (&self.version, desc::VERSION),
+            (&self.shasum, desc::SHA256SUM),
+            (&self.arch, desc::ARCH),
+            (&self.packager, desc::PACKAGER),
+            (&self.pkgrel, desc::PKGREL),
+        ] {
+            writer.write(b"\n\n")?;
+            writer.write(key.as_bytes())?;
+            writer.write(b"\n")?;
+            writer.write(value.as_bytes())?;
+        }
+        writer.write(format!("\n\n{}\n{}", desc::CSIZE, self.csize).as_bytes())?;
+        writer.write(format!("\n\n{}\n{}", desc::ISIZE, self.isize).as_bytes())?;
+        writer.write(format!("\n\n{}\n{}", desc::BUILDDATE, self.builddate).as_bytes())?;
+        if let Some(epoch) = self.epoch {
+            writer.write(format!("\n\n{}\n{}", desc::EPOCH, epoch).as_bytes())?;
+        }
+        for (value, key) in [
+            (&self.base, desc::BASE),
+            (&self.desc, desc::DESC),
+            (&self.pgpsig, desc::PGPSIG),
+            (&self.url, desc::URL),
+        ] {
+            if let Some(value) = value {
+                writer.write(b"\n\n")?;
+                writer.write(key.as_bytes())?;
+                writer.write(b"\n")?;
+                writer.write(value.as_bytes())?;
+            }
+        }
+        for (list, key) in [
+            (&self.groups, desc::GROUPS),
+            (&self.licenses, desc::LICENSE),
+            (&self.replaces, desc::REPLACES),
+            (&self.conflicts, desc::CONFLICTS),
+            (&self.provides, desc::PROVIDES),
+            (&self.depends, desc::DEPENDS),
+            (&self.optdepends, desc::OPTDEPENDS),
+            (&self.makedepends, desc::MAKEDEPENDS),
+            (&self.checkdepends, desc::CHECKDEPENDS),
+        ] {
+            Self::write_list(list, &mut writer, key)?;
+        }
+        Ok(())
+    }
+}
+
+// key = None;
+#[cfg(test)]
+mod tests {
+    use io::BufReader;
+
+    use super::*;
+
+    #[test]
+    fn valid() {
+        let orig = DbDesc {
+            file_name: "test.pkg".to_string(),
+            name: "pkgname".to_string(),
+            base: None,
+            version: "aaaa".to_string(),
+            desc: Some("Some random pkg test".to_string()),
+            groups: vec!["base".to_string()],
+            csize: 32,
+            isize: 32,
+            shasum: "crypto".to_string(),
+            pgpsig: None,
+            url: Some("www.com".to_string()),
+            licenses: vec!["aaaa".to_string()],
+            arch: "aarch64".to_string(),
+            builddate: 32,
+            packager: "gmorer".to_string(),
+            replaces: vec![],
+            conflicts: vec![],
+            provides: vec!["good_testing".to_string()],
+            depends: vec!["good_coding".to_string()],
+            optdepends: vec![],
+            makedepends: vec![],
+            checkdepends: vec!["testsss".to_string()],
+            // Extension
+            epoch: Some(2),
+            pkgrel: "64".to_string(),
+        };
+        let mut data = Vec::new();
+        orig.write(&mut data).unwrap();
+        let reader = BufReader::new(data.as_slice());
+        let res = DbDesc::new(reader).unwrap();
+        assert_eq!(res, orig);
     }
 }

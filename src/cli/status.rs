@@ -61,7 +61,7 @@ impl CliCmd for Status {
                     (Some(src), Some(db)) => {
                         if src.version != db.version {
                             println!(
-                                "{:width$} outdated new version: {}",
+                                "{:width$} outdated, new version: {}",
                                 format!("{}({})", name, db.version),
                                 src.version,
                                 width = max_len,
@@ -101,7 +101,7 @@ impl CliCmd for Status {
                 (Some(src), Some(db)) => {
                     if src.version != db.version {
                         println!(
-                            "{:width$} outdated new version: {} (not in conf)",
+                            "{:width$} outdated, new version: {} (not in conf)",
                             format!("{}({})", name, db.version),
                             src.version,
                             width = max_len,

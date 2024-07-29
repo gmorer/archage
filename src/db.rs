@@ -9,7 +9,7 @@ use thiserror::Error;
 use crate::cmd::{command, write_last_lines, NOENV};
 use crate::conf::Conf;
 
-use crate::format::DbDesc;
+use crate::format::{DbDesc, DbDescError};
 
 #[derive(Debug, Error)]
 pub enum RepoError {
@@ -17,6 +17,8 @@ pub enum RepoError {
     NoRepo,
     #[error("System error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("Parsing error: {0}")]
+    Parsing(#[from] DbDescError),
 }
 
 pub fn list(conf: &Conf) -> Result<Vec<DbDesc>, RepoError> {
@@ -31,7 +33,7 @@ pub fn list(conf: &Conf) -> Result<Vec<DbDesc>, RepoError> {
                     .file_name()
                     .is_some_and(|name| name.to_str() == Some("desc"))
                 {
-                    DbDesc::new(BufReader::new(entry)).map(|p| pkgs.push(p));
+                    DbDesc::new(BufReader::new(entry)).map(|p| pkgs.push(p))?;
                 }
             }
         }
