@@ -233,90 +233,79 @@ mod tests {
 
     #[test]
     fn version_cmp() {
-        let tap_runtest = |a: &str, b: &str, res: Ordering| {
+        for (a, b, expected) in [
+            ("1", "1", Ordering::Equal),
+            ("1.5", "1.5", Ordering::Equal),
+            ("1.5.0", "1.5.0", Ordering::Equal),
+            ("1.5.1", "1.5.0", Ordering::Greater),
+            // mixed length
+            ("1.5.1", "1.5", Ordering::Greater),
+            // with pkgrel, simple
+            ("1.5.0-1", "1.5.0-1", Ordering::Equal),
+            ("1.5.0-1", "1.5.0-2", Ordering::Less),
+            ("1.5.0-1", "1.5.1-1", Ordering::Less),
+            ("1.5.0-2", "1.5.1-1", Ordering::Less),
+            // with pkgrel, mixed lengths
+            ("1.5-1", "1.5.1-1", Ordering::Less),
+            ("1.5-2", "1.5.1-1", Ordering::Less),
+            ("1.5-2", "1.5.1-2", Ordering::Less),
+            // mixed pkgrel inclusion
+            ("1.5", "1.5-1", Ordering::Equal),
+            ("1.5-1", "1.5", Ordering::Equal),
+            ("1.1-1", "1.1", Ordering::Equal),
+            ("1.0-1", "1.1", Ordering::Less),
+            ("1.1-1", "1.0", Ordering::Greater),
+            // alphanumeric versions
+            ("1.5b-1", " 1.5-1 ", Ordering::Less),
+            ("1.5b", "1.5", Ordering::Less),
+            ("1.5b-1", "1.5", Ordering::Less),
+            ("1.5b", "1.5.1", Ordering::Less),
+            // from the manpage
+            ("1.0a", "1.0alpha", Ordering::Less),
+            ("1.0alpha", "1.0b", Ordering::Less),
+            ("1.0b", "1.0beta", Ordering::Less),
+            ("1.0beta", "1.0rc", Ordering::Less),
+            ("1.0rc", "1.0", Ordering::Less),
+            // going crazy? alpha-dotted versions
+            ("1.5.a", "1.5", Ordering::Greater),
+            ("1.5.b", "1.5.a", Ordering::Greater),
+            ("1.5.1", "1.5.b", Ordering::Greater),
+            // alpha dots and dashes
+            ("1.5.b-1", "1.5.b", Ordering::Equal),
+            ("1.5-1", "1.5.b", Ordering::Less),
+            // same/similar content, differing separators
+            ("2.0", "2_0", Ordering::Equal),
+            ("2.0_a", "2_0.a", Ordering::Equal),
+            ("2.0a", "2.0.a", Ordering::Less),
+            ("2___a", "2_a", Ordering::Greater),
+            // epoch included version comparisons
+            ("0:1.0", "0:1.0", Ordering::Equal),
+            ("0:1.0", "0:1.1", Ordering::Less),
+            ("1:1.0", "0:1.0", Ordering::Greater),
+            ("1:1.0", "0:1.1", Ordering::Greater),
+            ("1:1.0", "2:1.1", Ordering::Less),
+            // epoch + sometimes present pkgrel
+            ("1:1.0", "0:1.0-1", Ordering::Greater),
+            ("1:1.0-1", "0:1.1-1", Ordering::Greater),
+            // epoch included on one version
+            ("0:1.0", "1.0", Ordering::Equal),
+            ("0:1.0", "1.1", Ordering::Less),
+            ("0:1.1", "1.0", Ordering::Greater),
+            ("1:1.0", "1.0", Ordering::Greater),
+            ("1:1.0", "1.1", Ordering::Greater),
+            ("1:1.1", "1.1", Ordering::Greater),
+        ] {
             let va = Version::try_from(a).expect(&format!("Failed to parse Version for {}", a));
             let vb = Version::try_from(b).expect(&format!("Failed to parse Version for {}", b));
             assert_eq!(
                 va._cmp(&vb),
-                res,
+                expected,
                 "Comparing '{}' to '{}' parsed to {:?} and {:?}",
                 a,
                 b,
                 va,
                 vb
             );
-        };
-        tap_runtest("1", "1", Ordering::Equal);
-        tap_runtest("1.5", "1.5", Ordering::Equal);
-        tap_runtest("1.5.0", "1.5.0", Ordering::Equal);
-        tap_runtest("1.5.1", "1.5.0", Ordering::Greater);
-
-        // mixed length
-        tap_runtest("1.5.1", "1.5", Ordering::Greater);
-
-        // with pkgrel, simple
-        tap_runtest("1.5.0-1", "1.5.0-1", Ordering::Equal);
-        tap_runtest("1.5.0-1", "1.5.0-2", Ordering::Less);
-        tap_runtest("1.5.0-1", "1.5.1-1", Ordering::Less);
-        tap_runtest("1.5.0-2", "1.5.1-1", Ordering::Less);
-
-        // with pkgrel, mixed lengths
-        tap_runtest("1.5-1", "1.5.1-1", Ordering::Less);
-        tap_runtest("1.5-2", "1.5.1-1", Ordering::Less);
-        tap_runtest("1.5-2", "1.5.1-2", Ordering::Less);
-
-        // mixed pkgrel inclusion
-        tap_runtest("1.5", "1.5-1", Ordering::Equal);
-        tap_runtest("1.5-1", "1.5", Ordering::Equal);
-        tap_runtest("1.1-1", "1.1", Ordering::Equal);
-        tap_runtest("1.0-1", "1.1", Ordering::Less);
-        tap_runtest("1.1-1", "1.0", Ordering::Greater);
-
-        // alphanumeric versions
-        tap_runtest("1.5b-1", " 1.5-1 ", Ordering::Less);
-        tap_runtest("1.5b", "1.5", Ordering::Less);
-        tap_runtest("1.5b-1", "1.5", Ordering::Less);
-        tap_runtest("1.5b", "1.5.1", Ordering::Less);
-
-        // from the manpage
-        tap_runtest("1.0a", "1.0alpha", Ordering::Less);
-        tap_runtest("1.0alpha", "1.0b", Ordering::Less);
-        tap_runtest("1.0b", "1.0beta", Ordering::Less);
-        tap_runtest("1.0beta", "1.0rc", Ordering::Less);
-        tap_runtest("1.0rc", "1.0", Ordering::Less);
-
-        // going crazy? alpha-dotted versions
-        tap_runtest("1.5.a", "1.5", Ordering::Greater);
-        tap_runtest("1.5.b", "1.5.a", Ordering::Greater);
-        tap_runtest("1.5.1", "1.5.b", Ordering::Greater);
-
-        // alpha dots and dashes
-        tap_runtest("1.5.b-1", "1.5.b", Ordering::Equal);
-        tap_runtest("1.5-1", "1.5.b", Ordering::Less);
-
-        // same/similar content, differing separators
-        tap_runtest("2.0", "2_0", Ordering::Equal);
-        tap_runtest("2.0_a", "2_0.a", Ordering::Equal);
-        tap_runtest("2.0a", "2.0.a", Ordering::Less);
-        tap_runtest("2___a", "2_a", Ordering::Greater);
-
-        // epoch included version comparisons
-        tap_runtest("0:1.0", "0:1.0", Ordering::Equal);
-        tap_runtest("0:1.0", "0:1.1", Ordering::Less);
-        tap_runtest("1:1.0", "0:1.0", Ordering::Greater);
-        tap_runtest("1:1.0", "0:1.1", Ordering::Greater);
-        tap_runtest("1:1.0", "2:1.1", Ordering::Less);
-
-        // epoch + sometimes present pkgrel
-        tap_runtest("1:1.0", "0:1.0-1", Ordering::Greater);
-        tap_runtest("1:1.0-1", "0:1.1-1", Ordering::Greater);
-
-        // epoch included on one version
-        tap_runtest("0:1.0", "1.0", Ordering::Equal);
-        tap_runtest("0:1.0", "1.1", Ordering::Less);
-        tap_runtest("0:1.1", "1.0", Ordering::Greater);
-        tap_runtest("1:1.0", "1.0", Ordering::Greater);
-        tap_runtest("1:1.0", "1.1", Ordering::Greater);
-        tap_runtest("1:1.1", "1.1", Ordering::Greater)
+        }
     }
 }
