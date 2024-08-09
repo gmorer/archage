@@ -8,6 +8,8 @@ use crate::format::{ParsingError, SrcInfo};
 use crate::Conf;
 use thiserror::Error;
 
+// TODO: git goes brr: git clone --filter=tree:0 <repo>
+
 #[derive(Debug, Error)]
 pub enum DownloadError {
     #[error("System error: {0}")]

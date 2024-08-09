@@ -27,6 +27,7 @@ impl CliCmd for Status {
         let mut name_max_len = 0;
         let mut version_max_len = 0;
         let mut res: HashMap<String, StatusPkg> = HashMap::new();
+        // TODO: this is slow
         for file in read_dir(conf.server_dir.join("pkgs")).map_err(cmd_err)? {
             if let Ok(file) = file {
                 if let Ok(typ) = file.file_type() {
@@ -35,7 +36,7 @@ impl CliCmd for Status {
                         let name = name.to_string_lossy();
                         let pkg = SrcInfo::new(&conf, name.as_ref()).map_err(cmd_err)?;
                         name_max_len = max(name_max_len, pkg.name.len());
-                        version_max_len = max(version_max_len, pkg.version.len());
+                        version_max_len = max(version_max_len, pkg.pkgver.len());
                         res.insert(pkg.name.clone(), (Some(pkg), None));
                     }
                 }
@@ -59,11 +60,11 @@ impl CliCmd for Status {
             if let Some(pkg) = res.remove(name) {
                 match pkg {
                     (Some(src), Some(db)) => {
-                        if src.version != db.version {
+                        if src.pkgver != db.version {
                             println!(
                                 "{:width$} outdated, new version: {}",
                                 format!("{}({})", name, db.version),
-                                src.version,
+                                src.pkgver,
                                 width = max_len,
                             );
                         } else {
@@ -77,7 +78,7 @@ impl CliCmd for Status {
                     (Some(src), None) => {
                         println!(
                             "{:width$} Downloaded, not built",
-                            format!("{}({})", name, src.version),
+                            format!("{}({})", name, src.pkgver),
                             width = max_len
                         );
                         // With src not installed
@@ -99,11 +100,11 @@ impl CliCmd for Status {
         for (name, (src, repo)) in res {
             match (src, repo) {
                 (Some(src), Some(db)) => {
-                    if src.version != db.version {
+                    if src.pkgver != db.version {
                         println!(
                             "{:width$} outdated, new version: {} (not in conf)",
                             format!("{}({})", name, db.version),
-                            src.version,
+                            src.pkgver,
                             width = max_len,
                         );
                     } else {
@@ -117,7 +118,7 @@ impl CliCmd for Status {
                 (Some(src), None) => {
                     println!(
                         "{:width$} Downloaded, not built (not in conf)",
-                        format!("{}({})", name, src.version),
+                        format!("{}({})", name, src.pkgver),
                         width = max_len
                     );
                     // With src not installed

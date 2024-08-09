@@ -27,7 +27,7 @@ pub fn find_src(conf: &Conf, pkg: &SrcInfo) -> Option<PathBuf> {
     if src_dir.join(&pkg.name).exists() {
         return Some(src_dir.join(&pkg.name));
     }
-    let name_version = src_dir.join(format!("{}-{}", pkg.name, pkg.version));
+    let name_version = src_dir.join(format!("{}-{}", pkg.name, pkg.pkgver));
     if name_version.exists() {
         return Some(name_version);
     }

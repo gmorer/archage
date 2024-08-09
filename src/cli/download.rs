@@ -37,7 +37,7 @@ impl CliCmd for Download {
             builder
                 .download_src(&conf, &pkgbuild.name, makepkg)
                 .map_err(cmd_err)?;
-            println!("{} - {} downloaded", pkgbuild.name, pkgbuild.version);
+            println!("{} - {} downloaded", pkgbuild.name, pkgbuild.pkgver);
         }
         Ok(())
     }

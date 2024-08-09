@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 
 use crate::Conf;
 
@@ -70,6 +70,15 @@ enum Commands {
     /// Patch utilities
     #[command(subcommand)]
     Patch(patch::Patch),
+
+    // test
+    RepoAdd(RepoAdd),
+}
+
+#[derive(Args, Debug)]
+pub struct RepoAdd {
+    /// Package name
+    pub name: String,
 }
 
 impl CliCmd for Commands {
@@ -81,6 +90,7 @@ impl CliCmd for Commands {
             Commands::Update(a) => a.execute(conf),
             Commands::Status(a) => a.execute(conf),
             Commands::Patch(a) => a.execute(conf),
+            Commands::RepoAdd(a) => crate::db::add_test(&conf, &a.name),
         }
     }
 }

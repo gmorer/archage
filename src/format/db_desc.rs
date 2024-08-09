@@ -88,8 +88,6 @@ mod desc {
     pub const PROVIDES: &str = "%PROVIDES%";
     pub const DEPENDS: &str = "%DEPENDS%";
     pub const OPTDEPENDS: &str = "%OPTDEPENDS%";
-    pub const EPOCH: &str = "%EPOCH%";
-    pub const PKGREL: &str = "%PKGREL%";
     pub const MAKEDEPENDS: &str = "%MAKEDEPENDS%";
     pub const CHECKDEPENDS: &str = "%CHECKDEPENDS%";
 }
@@ -99,8 +97,8 @@ pub struct DbDesc {
     // Original
     file_name: String,
     pub name: String,
-    // https://gitlab.archlinux.org/pacman/pacman/-/blob/master/lib/libalpm/version.c
     base: Option<String>,
+    // [epoch:]version[-release]
     pub version: String,
     desc: Option<String>,
     groups: Vec<String>,
@@ -120,9 +118,6 @@ pub struct DbDesc {
     optdepends: Vec<String>,
     makedepends: Vec<String>,
     checkdepends: Vec<String>,
-    // Extension
-    epoch: Option<u32>,
-    pkgrel: String,
 }
 
 fn get_val_string(
@@ -216,8 +211,6 @@ impl DbDesc {
         let mut optdepends = Vec::new();
         let mut makedepends = Vec::new();
         let mut checkdepends = Vec::new();
-        let mut epoch = None;
-        let mut pkgrel = None;
         let mut lines = data.lines();
         while let Some(line) = lines.next() {
             if let Ok(line) = line {
@@ -254,8 +247,6 @@ impl DbDesc {
                         checkdepends = get_val_vec_string(&mut lines, desc::CHECKDEPENDS)?
                     }
                     // Extension
-                    desc::EPOCH => epoch = Some(get_val_u32(&mut lines, desc::EPOCH)?),
-                    desc::PKGREL => pkgrel = Some(get_val_string(&mut lines, desc::PKGREL)?),
                     a => warn!("DB desc unknown property: {}", a),
                 }
             }
@@ -314,12 +305,6 @@ impl DbDesc {
                 desc::PACKAGER
             )));
         };
-        let Some(pkgrel) = pkgrel else {
-            return Err(DbDescError::InvalidData(format!(
-                "Missing {} value",
-                desc::PKGREL
-            )));
-        };
         Ok(Self {
             file_name,
             name,
@@ -343,8 +328,6 @@ impl DbDesc {
             optdepends,
             makedepends,
             checkdepends,
-            pkgrel,
-            epoch,
         })
     }
 
@@ -372,7 +355,6 @@ impl DbDesc {
             (&self.shasum, desc::SHA256SUM),
             (&self.arch, desc::ARCH),
             (&self.packager, desc::PACKAGER),
-            (&self.pkgrel, desc::PKGREL),
         ] {
             writer.write(b"\n\n")?;
             writer.write(key.as_bytes())?;
@@ -382,9 +364,6 @@ impl DbDesc {
         writer.write(format!("\n\n{}\n{}", desc::CSIZE, self.csize).as_bytes())?;
         writer.write(format!("\n\n{}\n{}", desc::ISIZE, self.isize).as_bytes())?;
         writer.write(format!("\n\n{}\n{}", desc::BUILDDATE, self.builddate).as_bytes())?;
-        if let Some(epoch) = self.epoch {
-            writer.write(format!("\n\n{}\n{}", desc::EPOCH, epoch).as_bytes())?;
-        }
         for (value, key) in [
             (&self.base, desc::BASE),
             (&self.desc, desc::DESC),
@@ -448,8 +427,6 @@ mod tests {
             makedepends: vec![],
             checkdepends: vec!["testsss".to_string()],
             // Extension
-            epoch: Some(2),
-            pkgrel: "64".to_string(),
         };
         let mut data = Vec::new();
         orig.write(&mut data).unwrap();

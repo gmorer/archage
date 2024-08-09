@@ -87,7 +87,7 @@ fn _command(mut cmd: Command) -> Result<(ExitStatus, Vec<String>, Duration), Exe
     let mut buff = [0; 500];
     let status = loop {
         let mut events = [EpollEvent::empty(), EpollEvent::empty()];
-        let x = poll.wait(&mut events, 100)?;
+        let x = poll.wait(&mut events, 5000 as u16)?;
         if let Some(status) = match child.try_wait() {
             Ok(res) => res,
             Err(e) => {

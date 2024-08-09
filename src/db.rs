@@ -1,5 +1,7 @@
 use flate2::read::GzDecoder;
-use log::error;
+use log::{error, warn};
+use nix::unistd::sleep;
+// use log::error;
 use std::fs::{self, File};
 use std::io::BufReader;
 use std::path::Path;
@@ -9,7 +11,49 @@ use thiserror::Error;
 use crate::cmd::{command, write_last_lines, NOENV};
 use crate::conf::Conf;
 
-use crate::format::{DbDesc, DbDescError};
+use crate::format::{DbDesc, DbDescError, PkgInfo};
+use crate::utils::file_lock::FileLock;
+
+// TODO: Look into pacman's "vercmp"
+
+/*
+===== pacage.db.tar.gz =====
+├ ${pkgname1}-${pkgver1}/    # One directory per package - version
+│ └ desc                     # One desc file per directory (format::DbDesc)
+├ ${pkgname2}-${pkgver2}/
+│ └ desc
+├ ${pkgname3}-${pkgver3}/
+│ └ desc
+├ [...]
+========
+===== pacage.files.tar.gz =====
+├ ${pkgname1}-${pkgver1}/    # One directory per package - version
+│ ├ files                    # List of all the files (sort -u) (except hidden) in pkgfile
+│ └ desc                     # Same desc file as db (format::DbDesc)
+├ ${pkgname2}-${pkgver2}/
+│ ├ files
+│ └ desc
+├ ${pkgname3}-${pkgver3}/
+│ ├ files
+│ └ desc
+├ [...]
+========
+==== pacage.files.tar.gz/bash-5.2.002-2/files
+%FILES%
+etc/
+etc/bash.bash_logout
+etc/bash.bashrc
+etc/skel/
+etc/skel/.bash_logout
+etc/skel/.bash_profile
+etc/skel/.bashrc
+usr/
+usr/bin/
+usr/bin/bash
+usr/bin/bashbug
+[...]
+usr/share/man/man1/bashbug.1.gz
+*/
 
 #[derive(Debug, Error)]
 pub enum RepoError {
@@ -26,6 +70,7 @@ pub fn list(conf: &Conf) -> Result<Vec<DbDesc>, RepoError> {
     let tar_gz = File::open(conf.get_repo()).map_err(|_| RepoError::NoRepo)?;
     let tar = GzDecoder::new(tar_gz);
     let mut archive = Archive::new(tar);
+    // TODO: check for duplicated pkgs (same pkg not the same version)
     for entry in archive.entries()? {
         if let Ok(entry) = entry {
             if let Ok(path) = entry.path() {
@@ -67,6 +112,22 @@ fn find_package(conf: &Conf, name: &str) -> Option<String> {
 }
 
 pub fn add(conf: &Conf, name: &str) -> Result<(), String> {
+    /*
+    In house imp:
+    untar the package_file especially pkgfile
+    parse .PKGINFO
+    - LOCK DB -
+    create db if dont exist
+    check for already existing in the db.tar (especially newer version, and same one)
+    check csize match / replace with actual size
+    atomic replace db
+    compute pgp sig if package_file.sig exist
+    compute sha256sum
+    remove any pkgname entry
+    create new ${pkgname}-${pkgver}/desc entry
+    generate pkg.files.tar.gz entry (echo "%FILES%" >"$files_path" && bsdtar --exclude='^.*' -tf "$pkgfile" | LC_ALL=C sort -u >>"$files_path" )
+    - UNLOCK DB -
+    */
     if let Some(package_file) = find_package(conf, name) {
         let binding = conf.get_repo();
         let db = binding.as_os_str().to_string_lossy();
@@ -91,4 +152,158 @@ pub fn add(conf: &Conf, name: &str) -> Result<(), String> {
         error!("[{}] Failed to find package file", name);
     }
     Ok(())
+}
+
+fn parse_path_name(
+    path: &Path,
+) -> Result<
+    (
+        String, /* pkgname */
+        String, /* pkgver */
+        u32,    /* pkgrel */
+    ),
+    String,
+> {
+    let path = path.to_string_lossy();
+    let second = path
+        .rfind('-')
+        .ok_or_else(|| format!("Missing '-' in database entry"))?;
+    let first = path[..second]
+        .rfind('-')
+        .ok_or_else(|| format!("Missing second '-' in database entry"))?;
+    // println!("rel: {}", path[second + 1..].to_string());
+    // println!("ver: {}", path[first + 1..second].to_string());
+    // println!("name: {}", path[..first].to_string());
+    if second + 1 >= path.len() {
+        return Err("Package release missing".to_string());
+    } else if first == 0 {
+        return Err("Package name missing".to_string());
+    }
+    let rel = path[second + 1..]
+        .parse::<u32>()
+        .map_err(|e| format!("Package release is not a valid number: {}", e))?;
+    let ver = path[first + 1..second].to_string();
+    let name = path[..first].to_string();
+    return Ok((name, ver, rel));
+}
+
+pub fn add_test(conf: &Conf, name: &str) -> Result<(), i32> {
+    let Some(package_file) = find_package(conf, name) else {
+        eprintln!("Could not find the package archive");
+        return Err(2);
+    };
+    let tar_gz = File::open(package_file).map_err(|e| {
+        eprintln!("Failed to open the arhive: {}", e);
+        9
+    })?;
+    let mut archive = Archive::new(GzDecoder::new(tar_gz));
+    let entries = archive.entries().map_err(|e| {
+        eprintln!("Failed to parse the arhive: {}", e);
+        9
+    })?;
+    let mut pkginfo = None;
+    for entry in entries {
+        let Ok(entry) = entry else {
+            continue;
+        };
+        let Ok(path) = entry.path() else {
+            continue;
+        };
+        if path == Path::new(".PKGINFO") {
+            pkginfo = Some(BufReader::new(entry));
+            break;
+        }
+    }
+    let Some(pkginfo) = pkginfo else {
+        eprintln!("Missing .PKGINFO in the pkg archive");
+        return Err(3);
+    };
+
+    let pkginfo = PkgInfo::new(pkginfo).map_err(|e| {
+        eprintln!("Failed to parse .PKGINFO: {}", e);
+        5
+    });
+
+    let repo_lock = FileLock::new(conf.get_repo().with_extension("lock")).map_err(|e| {
+        eprintln!("Failed to acquire db lock: {}", e);
+        3
+    })?;
+    println!("Locked");
+    let repo_path = conf.get_repo();
+    let mut tmp_repo_path = repo_path.clone();
+    tmp_repo_path.set_extension("tmp");
+    if repo_path.exists() {
+        fs::copy(&repo_path, &tmp_repo_path).map_err(|e| {
+            eprintln!("Failed to copy the db: {}", e);
+            4
+        })?;
+    }
+    let repo = File::create(&tmp_repo_path).map_err(|e| {
+        eprintln!("Failed to open the db: {}", e);
+        5
+    })?;
+    let tar = GzDecoder::new(repo);
+    let mut archive = Archive::new(tar);
+    let entries = archive.entries().map_err(|e| {
+        eprintln!("failed to read db: {}", e);
+        6
+    })?;
+    for entry in entries {
+        if let Ok(entry) = entry {
+            if let Ok(path) = entry.path() {
+                let (ename, ever, erel) = match parse_path_name(&path) {
+                    Ok(a) => a,
+                    Err(e) => {
+                        warn!(
+                            "Invalid entry in the db '{}': {}",
+                            path.to_string_lossy(),
+                            e
+                        );
+                        continue;
+                    }
+                };
+                if ename != name {
+                    continue;
+                }
+                // TODO: Improvment over normal repo-add > check epoch
+                // check if newer version
+                // check if same version
+                // check if oldest version
+            }
+        }
+    }
+    // check csize match / replace with actual size
+    // compute pgp sig if package_file.sig exist
+    // compute sha256sum
+    // remove any pkgname entry
+    // create new ${pkgname}-${pkgver}/desc entry
+    // generate pkg.files.tar.gz entry (echo "%FILES%" >"$files_path" && bsdtar --exclude='^.*' -tf "$pkgfile" | LC_ALL=C sort -u >>"$files_path" )
+    // atomic replace db
+    // Ensure repo_lock stay alive until the end
+    println!("Unlocked");
+    drop(repo_lock);
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn parse_path_name() {
+        for (test, expected) in [
+            ("bash-5.43-2", Ok(("bash", "5.43", 2))),
+            ("bash-ex-5.43-2", Ok(("bash-ex", "5.43", 2))),
+            ("bash-5.42", Err("Missing second '-' in database entry")),
+            ("bash-5.42-", Err("Package release missing")),
+            ("-5.42-42", Err("Package name missing")),
+        ] {
+            let res = super::parse_path_name(Path::new(test));
+            let expected = expected
+                .map(|(name, version, rel)| (name.to_string(), version.to_string(), rel))
+                .map_err(|e| e.to_string());
+            assert_eq!(res, expected, "Testing {}", test);
+        }
+    }
 }

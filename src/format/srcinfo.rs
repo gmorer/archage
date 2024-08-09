@@ -73,8 +73,8 @@ pub enum SrcInfoError {
 #[derive(Debug)]
 pub struct SrcInfo {
     pub name: String,
-    pub version: String,
-    pub release: u32,
+    pub pkgver: String, // Cannot contain "-"
+    pub pkgrel: u32,
     pub epoch: Option<u32>,
     pub deps: Vec<String>,
     pub src: bool,
@@ -140,8 +140,8 @@ impl SrcInfo {
         if name.is_some() && version.is_some() && release.is_some() {
             return Ok(Self {
                 name: name.unwrap(),
-                version: version.unwrap(),
-                release: release.unwrap(),
+                pkgver: version.unwrap(),
+                pkgrel: release.unwrap(),
                 epoch,
                 deps,
                 src,
