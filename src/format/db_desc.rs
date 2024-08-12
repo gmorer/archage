@@ -38,7 +38,6 @@ GPL-3.0-or-later
 
 %ARCH%
 x86_64
-
 %BUILDDATE%
 1718499903
 
@@ -95,29 +94,29 @@ mod desc {
 #[derive(PartialEq, Eq, Debug)]
 pub struct DbDesc {
     // Original
-    file_name: String,
+    pub filename: String,
     pub name: String,
-    base: Option<String>,
+    pub base: Option<String>,
     // [epoch:]version[-release]
     pub version: String,
-    desc: Option<String>,
-    groups: Vec<String>,
-    csize: u32,
-    isize: u32,
-    shasum: String,
-    pgpsig: Option<String>,
-    url: Option<String>,
-    licenses: Vec<String>,
-    arch: String,
-    builddate: u32,
-    packager: String,
-    replaces: Vec<String>,
-    conflicts: Vec<String>,
-    provides: Vec<String>,
-    depends: Vec<String>,
-    optdepends: Vec<String>,
-    makedepends: Vec<String>,
-    checkdepends: Vec<String>,
+    pub desc: Option<String>,
+    pub groups: Vec<String>,
+    pub csize: u64,
+    pub isize: Option<u32>,
+    pub shasum: String,
+    pub pgpsig: Option<String>,
+    pub url: Option<String>,
+    pub licenses: Vec<String>,
+    pub arch: Option<String>,
+    pub builddate: Option<u32>,
+    pub packager: Option<String>,
+    pub replaces: Vec<String>,
+    pub conflicts: Vec<String>,
+    pub provides: Vec<String>,
+    pub depends: Vec<String>,
+    pub optdepends: Vec<String>,
+    pub makedepends: Vec<String>,
+    pub checkdepends: Vec<String>,
 }
 
 fn get_val_string(
@@ -224,7 +223,7 @@ impl DbDesc {
                     desc::VERSION => version = Some(get_val_string(&mut lines, desc::VERSION)?),
                     desc::DESC => desc = Some(get_val_string(&mut lines, desc::DESC)?),
                     desc::GROUPS => groups = get_val_vec_string(&mut lines, desc::GROUPS)?,
-                    desc::CSIZE => csize = Some(get_val_u32(&mut lines, desc::CSIZE)?),
+                    desc::CSIZE => csize = Some(get_val_u32(&mut lines, desc::CSIZE)? as u64),
                     desc::ISIZE => isize = Some(get_val_u32(&mut lines, desc::ISIZE)?),
                     desc::SHA256SUM => shasum = Some(get_val_string(&mut lines, desc::SHA256SUM)?),
                     desc::PGPSIG => pgpsig = Some(get_val_string(&mut lines, desc::PGPSIG)?),
@@ -269,12 +268,6 @@ impl DbDesc {
                 desc::VERSION
             )));
         };
-        let Some(isize) = isize else {
-            return Err(DbDescError::InvalidData(format!(
-                "Missing {} value",
-                desc::ISIZE
-            )));
-        };
         let Some(csize) = csize else {
             return Err(DbDescError::InvalidData(format!(
                 "Missing {} value",
@@ -287,26 +280,8 @@ impl DbDesc {
                 desc::SHA256SUM
             )));
         };
-        let Some(arch) = arch else {
-            return Err(DbDescError::InvalidData(format!(
-                "Missing {} value",
-                desc::ARCH
-            )));
-        };
-        let Some(builddate) = builddate else {
-            return Err(DbDescError::InvalidData(format!(
-                "Missing {} value",
-                desc::BUILDDATE
-            )));
-        };
-        let Some(packager) = packager else {
-            return Err(DbDescError::InvalidData(format!(
-                "Missing {} value",
-                desc::PACKAGER
-            )));
-        };
         Ok(Self {
-            file_name,
+            filename: file_name,
             name,
             base,
             version,
@@ -349,12 +324,10 @@ impl DbDesc {
 
     pub fn write(&self, mut writer: impl Write) -> Result<(), DbDescError> {
         for (value, key) in [
-            (&self.file_name, desc::FILENAME),
+            (&self.filename, desc::FILENAME),
             (&self.name, desc::NAME),
             (&self.version, desc::VERSION),
             (&self.shasum, desc::SHA256SUM),
-            (&self.arch, desc::ARCH),
-            (&self.packager, desc::PACKAGER),
         ] {
             writer.write(b"\n\n")?;
             writer.write(key.as_bytes())?;
@@ -362,13 +335,19 @@ impl DbDesc {
             writer.write(value.as_bytes())?;
         }
         writer.write(format!("\n\n{}\n{}", desc::CSIZE, self.csize).as_bytes())?;
-        writer.write(format!("\n\n{}\n{}", desc::ISIZE, self.isize).as_bytes())?;
-        writer.write(format!("\n\n{}\n{}", desc::BUILDDATE, self.builddate).as_bytes())?;
+        if let Some(isize) = self.isize {
+            writer.write(format!("\n\n{}\n{}", desc::ISIZE, isize).as_bytes())?;
+        }
+        if let Some(builddate) = self.builddate {
+            writer.write(format!("\n\n{}\n{}", desc::BUILDDATE, builddate).as_bytes())?;
+        }
         for (value, key) in [
             (&self.base, desc::BASE),
             (&self.desc, desc::DESC),
             (&self.pgpsig, desc::PGPSIG),
             (&self.url, desc::URL),
+            (&self.arch, desc::ARCH),
+            (&self.packager, desc::PACKAGER),
         ] {
             if let Some(value) = value {
                 writer.write(b"\n\n")?;
@@ -404,21 +383,21 @@ mod tests {
     #[test]
     fn valid() {
         let orig = DbDesc {
-            file_name: "test.pkg".to_string(),
+            filename: "test.pkg".to_string(),
             name: "pkgname".to_string(),
             base: None,
             version: "aaaa".to_string(),
             desc: Some("Some random pkg test".to_string()),
             groups: vec!["base".to_string()],
             csize: 32,
-            isize: 32,
+            isize: Some(32),
             shasum: "crypto".to_string(),
             pgpsig: None,
             url: Some("www.com".to_string()),
             licenses: vec!["aaaa".to_string()],
-            arch: "aarch64".to_string(),
-            builddate: 32,
-            packager: "gmorer".to_string(),
+            arch: Some("aarch64".to_string()),
+            builddate: Some(32),
+            packager: Some("madness".to_string()),
             replaces: vec![],
             conflicts: vec![],
             provides: vec!["good_testing".to_string()],

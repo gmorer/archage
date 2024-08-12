@@ -32,6 +32,10 @@ use std::io::BufRead;
 
 use thiserror::Error;
 
+use crate::utils::version::Version;
+
+use super::DbDesc;
+
 #[derive(Debug, Error)]
 pub enum PkgInfoError {
     #[error("Invalid data: {0}")]
@@ -41,8 +45,9 @@ pub enum PkgInfoError {
 // Look like we only actually need:  ensure $pkgname and $pkgver variables were found
 pub struct PkgInfo {
     pkgname: String,
-    // the pkgver there is actualy ${pkgver}-${pkgrel} from .SRCINFO
+    // the pkgver there is actualy [${epoch}:]${pkgver}[-${pkgrel}] from .SRCINFO
     pkgver: String,
+    pub version: Version,
     pkgbase: Option<String>,
     pkgdesc: Option<String>,
     size: Option<u32>,
@@ -137,10 +142,13 @@ impl PkgInfo {
                 "Missing pkgver entry".to_string(),
             ));
         };
+        let version = Version::try_from(pkgver.as_str())
+            .map_err(|e| PkgInfoError::InvalidData(format!("Invalid version: {}", e)))?;
 
         Ok(Self {
             pkgname,
             pkgver,
+            version,
             pkgbase,
             pkgdesc,
             size,
@@ -158,5 +166,38 @@ impl PkgInfo {
             makedepends,
             checkdepends,
         })
+    }
+
+    pub fn to_desc(
+        &self,
+        filename: String,
+        csize: u64,
+        sha256: String,
+        pgpsig: Option<String>,
+    ) -> DbDesc {
+        DbDesc {
+            filename,
+            csize,
+            pgpsig,
+            name: self.pkgname.clone(),
+            base: self.pkgbase.clone(),
+            version: self.pkgver.clone(),
+            desc: self.pkgdesc.clone(),
+            groups: self.groups.clone(),
+            isize: self.size,
+            shasum: sha256,
+            url: self.url.clone(),
+            licenses: self.license.clone(),
+            arch: self.arch.clone(),
+            builddate: self.builddate,
+            packager: self.packager.clone(),
+            replaces: self.replaces.clone(),
+            conflicts: self.conflicts.clone(),
+            provides: self.provides.clone(),
+            depends: self.depends.clone(),
+            optdepends: self.optdepends.clone(),
+            makedepends: self.makedepends.clone(),
+            checkdepends: self.checkdepends.clone(),
+        }
     }
 }

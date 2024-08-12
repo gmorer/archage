@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 
 #[derive(Debug)]
-struct Version {
+pub struct Version {
     version: String,
     release: Option<String>,
     epoch: Option<u32>,
@@ -52,6 +52,25 @@ impl TryFrom<&str> for Version {
     }
 }
 
+impl PartialEq for Version {
+    fn eq(&self, other: &Self) -> bool {
+        self._cmp(other) == Ordering::Equal
+    }
+}
+impl Eq for Version {}
+
+impl PartialOrd for Version {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self._cmp(other))
+    }
+}
+
+impl Ord for Version {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self._cmp(other)
+    }
+}
+
 impl ToString for Version {
     fn to_string(&self) -> String {
         match (self.epoch, &self.release) {
@@ -64,6 +83,13 @@ impl ToString for Version {
 }
 
 impl Version {
+    pub fn new(version: &str, release: Option<&str>, epoch: Option<u32>) -> Self {
+        Self {
+            version: version.to_string(),
+            release: release.map(|a| a.to_string()),
+            epoch,
+        }
+    }
     pub fn _cmp(&self, other: &Self) -> Ordering {
         let self_epoch = self.epoch.unwrap_or(0);
         let other_epoch = other.epoch.unwrap_or(0);

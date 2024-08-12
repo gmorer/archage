@@ -1,10 +1,11 @@
 use flate2::read::GzDecoder;
 use log::{error, warn};
-use nix::unistd::sleep;
 // use log::error;
+use sha2::{Digest, Sha256};
 use std::fs::{self, File};
-use std::io::BufReader;
-use std::path::Path;
+use std::io::{self, BufReader};
+use std::os::unix::fs::MetadataExt;
+use std::path::{Path, PathBuf};
 use tar::Archive;
 use thiserror::Error;
 
@@ -13,6 +14,7 @@ use crate::conf::Conf;
 
 use crate::format::{DbDesc, DbDescError, PkgInfo};
 use crate::utils::file_lock::FileLock;
+use crate::utils::version::Version;
 
 // TODO: Look into pacman's "vercmp"
 
@@ -154,16 +156,7 @@ pub fn add(conf: &Conf, name: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn parse_path_name(
-    path: &Path,
-) -> Result<
-    (
-        String, /* pkgname */
-        String, /* pkgver */
-        u32,    /* pkgrel */
-    ),
-    String,
-> {
+fn parse_path_name(path: &Path) -> Result<(String /* pkgname */, Version), String> {
     let path = path.to_string_lossy();
     let second = path
         .rfind('-')
@@ -171,32 +164,27 @@ fn parse_path_name(
     let first = path[..second]
         .rfind('-')
         .ok_or_else(|| format!("Missing second '-' in database entry"))?;
-    // println!("rel: {}", path[second + 1..].to_string());
-    // println!("ver: {}", path[first + 1..second].to_string());
-    // println!("name: {}", path[..first].to_string());
     if second + 1 >= path.len() {
         return Err("Package release missing".to_string());
     } else if first == 0 {
         return Err("Package name missing".to_string());
     }
-    let rel = path[second + 1..]
-        .parse::<u32>()
-        .map_err(|e| format!("Package release is not a valid number: {}", e))?;
-    let ver = path[first + 1..second].to_string();
     let name = path[..first].to_string();
-    return Ok((name, ver, rel));
+    let version = Version::try_from(&path[(first + 1)..])
+        .map_err(|e| format!("Failed to parse db entry version: {}", e))?;
+    return Ok((name, version));
 }
 
 pub fn add_test(conf: &Conf, name: &str) -> Result<(), i32> {
-    let Some(package_file) = find_package(conf, name) else {
+    let Some(pkgfile) = find_package(conf, name) else {
         eprintln!("Could not find the package archive");
         return Err(2);
     };
-    let tar_gz = File::open(package_file).map_err(|e| {
+    let mut tar_gz = File::open(&pkgfile).map_err(|e| {
         eprintln!("Failed to open the arhive: {}", e);
         9
     })?;
-    let mut archive = Archive::new(GzDecoder::new(tar_gz));
+    let mut archive = Archive::new(GzDecoder::new(&tar_gz));
     let entries = archive.entries().map_err(|e| {
         eprintln!("Failed to parse the arhive: {}", e);
         9
@@ -222,7 +210,7 @@ pub fn add_test(conf: &Conf, name: &str) -> Result<(), i32> {
     let pkginfo = PkgInfo::new(pkginfo).map_err(|e| {
         eprintln!("Failed to parse .PKGINFO: {}", e);
         5
-    });
+    })?;
 
     let repo_lock = FileLock::new(conf.get_repo().with_extension("lock")).map_err(|e| {
         eprintln!("Failed to acquire db lock: {}", e);
@@ -248,10 +236,11 @@ pub fn add_test(conf: &Conf, name: &str) -> Result<(), i32> {
         eprintln!("failed to read db: {}", e);
         6
     })?;
+    let mut to_remove = None;
     for entry in entries {
         if let Ok(entry) = entry {
             if let Ok(path) = entry.path() {
-                let (ename, ever, erel) = match parse_path_name(&path) {
+                let (ename, eversion) = match parse_path_name(&path) {
                     Ok(a) => a,
                     Err(e) => {
                         warn!(
@@ -265,17 +254,38 @@ pub fn add_test(conf: &Conf, name: &str) -> Result<(), i32> {
                 if ename != name {
                     continue;
                 }
-                // TODO: Improvment over normal repo-add > check epoch
-                // check if newer version
-                // check if same version
-                // check if oldest version
+                if eversion > pkginfo.version {
+                    // warning "$(gettext "A newer version for '%s' is already present in database")" "$pkgname"
+                    // if (( PREVENT_DOWNGRADE )); then
+                    // 	return 0
+                    unimplemented!();
+                }
+                let edesc = File::open(path.join("desc")).map_err(|e| {
+                    eprintln!("Failed to open old entry desc: {}", e);
+                    7
+                })?;
+                let edesc = DbDesc::new(BufReader::new(edesc)).map_err(|e| {
+                    eprintln!("Failed to parse old entry desc: {}", e);
+                    7
+                })?;
+                to_remove = Some(edesc.filename);
             }
         }
     }
-    // check csize match / replace with actual size
-    // compute pgp sig if package_file.sig exist
-    // compute sha256sum
-    // remove any pkgname entry
+    if PathBuf::from(format!("{}.sig", pkgfile)).exists() {
+        // compute base64'd PGP signature
+        unimplemented!()
+    }
+    let mut hasher = Sha256::new();
+    let csize = io::copy(&mut tar_gz, &mut hasher).map_err(|e| {
+        eprintln!("Failed to read pkg archive to get the hash: {}", e);
+        10
+    })?;
+    let sha256 = base16ct::lower::encode_string(&hasher.finalize());
+    let desc = pkginfo.to_desc(pkgfile, csize, sha256, None);
+    unimplemented!();
+    // TODO: new entry to the archive
+    // remove any pkgname entry and from files as well
     // create new ${pkgname}-${pkgver}/desc entry
     // generate pkg.files.tar.gz entry (echo "%FILES%" >"$files_path" && bsdtar --exclude='^.*' -tf "$pkgfile" | LC_ALL=C sort -u >>"$files_path" )
     // atomic replace db
@@ -292,16 +302,21 @@ mod tests {
 
     #[test]
     fn parse_path_name() {
+        let v = Version::new;
         for (test, expected) in [
-            ("bash-5.43-2", Ok(("bash", "5.43", 2))),
-            ("bash-ex-5.43-2", Ok(("bash-ex", "5.43", 2))),
+            ("bash-5.43-2", Ok(("bash", v("5.43", Some("2"), None)))),
+            (
+                "bash-ex-5.43-2",
+                Ok(("bash-ex", v("5.43", Some("2"), None))),
+            ),
+            ("vi-1:070224-6", Ok(("vi", v("070224", Some("6"), Some(1))))),
             ("bash-5.42", Err("Missing second '-' in database entry")),
             ("bash-5.42-", Err("Package release missing")),
             ("-5.42-42", Err("Package name missing")),
         ] {
             let res = super::parse_path_name(Path::new(test));
             let expected = expected
-                .map(|(name, version, rel)| (name.to_string(), version.to_string(), rel))
+                .map(|(name, version)| (name.to_string(), version))
                 .map_err(|e| e.to_string());
             assert_eq!(res, expected, "Testing {}", test);
         }
