@@ -1,10 +1,12 @@
 use flate2::read::GzDecoder;
+use flate2::GzBuilder;
 use log::{error, warn};
 // use log::error;
 use sha2::{Digest, Sha256};
+use std::collections::BTreeSet;
+use std::env;
 use std::fs::{self, File};
-use std::io::{self, BufReader};
-use std::os::unix::fs::MetadataExt;
+use std::io::{self, BufReader, Write};
 use std::path::{Path, PathBuf};
 use tar::Archive;
 use thiserror::Error;
@@ -16,7 +18,8 @@ use crate::format::{DbDesc, DbDescError, PkgInfo};
 use crate::utils::file_lock::FileLock;
 use crate::utils::version::Version;
 
-// TODO: Look into pacman's "vercmp"
+const TMP_DB: &str = "pacage.db.tmp";
+const TMP_FILES: &str = "pacage.files.tmp";
 
 /*
 ===== pacage.db.tar.gz =====
@@ -88,6 +91,17 @@ pub fn list(conf: &Conf) -> Result<Vec<DbDesc>, RepoError> {
     Ok(pkgs)
 }
 
+/// Generate the content of the "files" file
+fn generate_files_file(files: BTreeSet<String>) -> Vec<u8> {
+    let mut res = Vec::with_capacity(8);
+    res.copy_from_slice(b"%FILES%\n");
+    for file in files {
+        res.push(b'\n');
+        res.copy_from_slice(file.as_bytes());
+    }
+    res
+}
+
 fn find_package(conf: &Conf, name: &str) -> Option<String> {
     let prefix = format!("{}-", name);
     let dir = match fs::read_dir(conf.server_dir.join("repo")) {
@@ -111,6 +125,62 @@ fn find_package(conf: &Conf, name: &str) -> Option<String> {
         }
     }
     None
+}
+
+fn read_package(
+    pkgfile: &str,
+) -> Result<
+    (
+        PkgInfo,
+        u64,              /* csize  */
+        String,           /* sha256 */
+        BTreeSet<String>, /* FILES  */
+    ),
+    i32,
+> {
+    let mut tar_gz = File::open(pkgfile).map_err(|e| {
+        eprintln!("Failed to open the arhive: {}", e);
+        9
+    })?;
+    let mut archive = Archive::new(GzDecoder::new(&tar_gz));
+    let entries = archive.entries().map_err(|e| {
+        eprintln!("Failed to parse the arhive: {}", e);
+        9
+    })?;
+    let mut pkginfo = None;
+    let mut files = BTreeSet::new();
+    for entry in entries {
+        let Ok(entry) = entry else {
+            continue;
+        };
+        let Ok(path) = entry.path() else {
+            continue;
+        };
+        let Some(path) = path.to_str() else {
+            continue;
+        };
+        if path == ".PKGINFO" {
+            pkginfo = Some(BufReader::new(entry));
+        } else if !path.starts_with(".") && entry.header().entry_type() == tar::EntryType::Regular {
+            files.insert(path.to_string());
+        }
+    }
+    let Some(pkginfo) = pkginfo else {
+        eprintln!("Missing .PKGINFO in the pkg archive");
+        return Err(3);
+    };
+
+    let pkginfo = PkgInfo::new(pkginfo).map_err(|e| {
+        eprintln!("Failed to parse .PKGINFO: {}", e);
+        5
+    })?;
+    let mut hasher = Sha256::new();
+    let csize = io::copy(&mut tar_gz, &mut hasher).map_err(|e| {
+        eprintln!("Failed to read pkg archive to get the hash: {}", e);
+        10
+    })?;
+    let sha256 = base16ct::lower::encode_string(&hasher.finalize());
+    Ok((pkginfo, csize, sha256, files))
 }
 
 pub fn add(conf: &Conf, name: &str) -> Result<(), String> {
@@ -175,72 +245,104 @@ fn parse_path_name(path: &Path) -> Result<(String /* pkgname */, Version), Strin
     return Ok((name, version));
 }
 
-pub fn add_test(conf: &Conf, name: &str) -> Result<(), i32> {
-    let Some(pkgfile) = find_package(conf, name) else {
-        eprintln!("Could not find the package archive");
-        return Err(2);
-    };
-    let mut tar_gz = File::open(&pkgfile).map_err(|e| {
-        eprintln!("Failed to open the arhive: {}", e);
-        9
-    })?;
-    let mut archive = Archive::new(GzDecoder::new(&tar_gz));
-    let entries = archive.entries().map_err(|e| {
-        eprintln!("Failed to parse the arhive: {}", e);
-        9
-    })?;
-    let mut pkginfo = None;
-    for entry in entries {
-        let Ok(entry) = entry else {
-            continue;
-        };
-        let Ok(path) = entry.path() else {
-            continue;
-        };
-        if path == Path::new(".PKGINFO") {
-            pkginfo = Some(BufReader::new(entry));
-            break;
-        }
-    }
-    let Some(pkginfo) = pkginfo else {
-        eprintln!("Missing .PKGINFO in the pkg archive");
-        return Err(3);
-    };
-
-    let pkginfo = PkgInfo::new(pkginfo).map_err(|e| {
-        eprintln!("Failed to parse .PKGINFO: {}", e);
-        5
-    })?;
-
-    let repo_lock = FileLock::new(conf.get_repo().with_extension("lock")).map_err(|e| {
-        eprintln!("Failed to acquire db lock: {}", e);
-        3
-    })?;
-    println!("Locked");
-    let repo_path = conf.get_repo();
-    let mut tmp_repo_path = repo_path.clone();
-    tmp_repo_path.set_extension("tmp");
-    if repo_path.exists() {
-        fs::copy(&repo_path, &tmp_repo_path).map_err(|e| {
-            eprintln!("Failed to copy the db: {}", e);
-            4
-        })?;
-    }
-    let repo = File::create(&tmp_repo_path).map_err(|e| {
+/// Copy the db to a new location omiting the pkginfo.pkgname pkgs
+fn copy_old_db<T>(
+    out_tar: &mut tar::Builder<T>,
+    repo_path: &Path,
+    pkginfo: &PkgInfo,
+    to_remove: &mut Vec<String>,
+) -> Result<(), i32>
+where
+    T: Write,
+{
+    let repo = File::open(&repo_path).map_err(|e| {
         eprintln!("Failed to open the db: {}", e);
         5
     })?;
-    let tar = GzDecoder::new(repo);
-    let mut archive = Archive::new(tar);
+    let mut archive = Archive::new(GzDecoder::new(&repo));
     let entries = archive.entries().map_err(|e| {
         eprintln!("failed to read db: {}", e);
         6
     })?;
-    let mut to_remove = None;
+    for entry in entries {
+        if let Ok(mut entry) = entry {
+            if let Ok(path) = entry.path() {
+                if path
+                    .file_name()
+                    .is_some_and(|name| name.to_str() == Some("desc"))
+                {
+                    let Some(parent) = path.parent() else {
+                        eprintln!("Missing parent for {}", path.to_string_lossy());
+                        continue;
+                    };
+
+                    let (ename, eversion) = match parse_path_name(&parent) {
+                        Ok(a) => a,
+                        Err(e) => {
+                            warn!(
+                                "Invalid entry in the db '{}': {}",
+                                path.to_string_lossy(),
+                                e
+                            );
+                            continue;
+                        }
+                    };
+                    if ename != pkginfo.pkgname {
+                        let epath = PathBuf::from(&*path);
+                        let mut header = entry.header().clone();
+                        let reader = BufReader::new(entry);
+                        out_tar
+                            .append_data(&mut header, epath, reader)
+                            .map_err(|e| {
+                                eprintln!("failed to copy db entry to output db: {}", e);
+                                9
+                            })?;
+                        continue;
+                    }
+                    if eversion > pkginfo.version {
+                        // warning "$(gettext "A newer version for '%s' is already present in database")" "$pkgname"
+                        // if (( PREVENT_DOWNGRADE )); then
+                        // 	return 0
+                        unimplemented!();
+                    }
+                    let edesc = DbDesc::new(BufReader::new(&mut entry)).map_err(|e| {
+                        eprintln!("Failed to parse old entry desc: {}", e);
+                        7
+                    })?;
+                    to_remove.push(edesc.filename);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Copy the files db to a new location omiting the pkginfo.pkgname pkgs
+fn copy_old_files<T>(
+    out_tar: &mut tar::Builder<T>,
+    files_path: &Path,
+    pkgname: &String,
+) -> Result<(), i32>
+where
+    T: Write,
+{
+    let repo = File::open(&files_path).map_err(|e| {
+        eprintln!("Failed to open the db: {}", e);
+        5
+    })?;
+    let mut archive = Archive::new(GzDecoder::new(&repo));
+    let entries = archive.entries().map_err(|e| {
+        eprintln!("failed to read db: {}", e);
+        6
+    })?;
     for entry in entries {
         if let Ok(entry) = entry {
             if let Ok(path) = entry.path() {
-                let (ename, eversion) = match parse_path_name(&path) {
+                let Some(parent) = path.parent() else {
+                    continue;
+                };
+
+                let (ename, _) = match parse_path_name(&parent) {
                     Ok(a) => a,
                     Err(e) => {
                         warn!(
@@ -251,46 +353,161 @@ pub fn add_test(conf: &Conf, name: &str) -> Result<(), i32> {
                         continue;
                     }
                 };
-                if ename != name {
+                if &ename != pkgname {
+                    let epath = PathBuf::from(&*path);
+                    let mut header = entry.header().clone();
+                    let reader = BufReader::new(entry);
+                    out_tar
+                        .append_data(&mut header, epath, reader)
+                        .map_err(|e| {
+                            eprintln!("failed to copy db entry to output db: {}", e);
+                            9
+                        })?;
                     continue;
                 }
-                if eversion > pkginfo.version {
-                    // warning "$(gettext "A newer version for '%s' is already present in database")" "$pkgname"
-                    // if (( PREVENT_DOWNGRADE )); then
-                    // 	return 0
-                    unimplemented!();
-                }
-                let edesc = File::open(path.join("desc")).map_err(|e| {
-                    eprintln!("Failed to open old entry desc: {}", e);
-                    7
-                })?;
-                let edesc = DbDesc::new(BufReader::new(edesc)).map_err(|e| {
-                    eprintln!("Failed to parse old entry desc: {}", e);
-                    7
-                })?;
-                to_remove = Some(edesc.filename);
             }
         }
     }
-    if PathBuf::from(format!("{}.sig", pkgfile)).exists() {
+    Ok(())
+}
+
+// TODO: handle multiples packages as well
+// TODO: Error type
+// TODO: Testing
+pub fn add_test(conf: &Conf, name: &str) -> Result<(), i32> {
+    let Some(pkgfile) = find_package(conf, name) else {
+        eprintln!("Could not find the package archive");
+        return Err(2);
+    };
+    let (pkginfo, csize, sha256, files) = read_package(&pkgfile)?;
+    let mut to_remove = vec![];
+
+    let repo_lock = FileLock::new(conf.get_repo().with_extension("lock")).map_err(|e| {
+        eprintln!("Failed to acquire db lock: {}", e);
+        3
+    })?;
+
+    // Create 2 new temporary dbs
+    let tar_new_db_path = env::temp_dir().join(TMP_DB);
+    let tar_new_files_path = env::temp_dir().join(TMP_FILES);
+    let mut tar_new_db = tar::Builder::new(GzBuilder::new().write(
+        File::create(&tar_new_db_path).map_err(|e| {
+            eprintln!("Failed to create tmp out db: {}", e);
+            15
+        })?,
+        flate2::Compression::default(),
+    ));
+    let mut tar_new_files = tar::Builder::new(GzBuilder::new().write(
+        File::create(&tar_new_files_path).map_err(|e| {
+            eprintln!("Failed to create tmp out files: {}", e);
+            15
+        })?,
+        flate2::Compression::default(),
+    ));
+
+    // Copy old relevant(everything except our package) entries into the new db
+    let repo_path = conf.get_repo();
+    let files_path = conf.get_repo_files();
+    if repo_path.exists() {
+        copy_old_db(&mut tar_new_db, &repo_path, &pkginfo, &mut to_remove)?;
+    }
+    if files_path.exists() {
+        copy_old_files(&mut tar_new_files, &files_path, &pkginfo.pkgname)?;
+    }
+
+    // Write desc in both db and files
+    let pgpsig = if PathBuf::from(format!("{}.sig", pkgfile)).exists() {
         // compute base64'd PGP signature
         unimplemented!()
-    }
-    let mut hasher = Sha256::new();
-    let csize = io::copy(&mut tar_gz, &mut hasher).map_err(|e| {
-        eprintln!("Failed to read pkg archive to get the hash: {}", e);
-        10
+    } else {
+        None
+    };
+    let version = pkginfo.version.to_string();
+    let desc_path = format!("{}-{}/desc", pkginfo.pkgname, &version);
+    let desc = pkginfo.to_desc(pkgfile, csize, sha256, pgpsig);
+    let mut desc_raw = vec![];
+    desc.write(&mut desc_raw).map_err(|e| {
+        eprintln!("Fail to create new desc file: {}", e);
+        8
     })?;
-    let sha256 = base16ct::lower::encode_string(&hasher.finalize());
-    let desc = pkginfo.to_desc(pkgfile, csize, sha256, None);
-    unimplemented!();
-    // TODO: new entry to the archive
-    // remove any pkgname entry and from files as well
-    // create new ${pkgname}-${pkgver}/desc entry
-    // generate pkg.files.tar.gz entry (echo "%FILES%" >"$files_path" && bsdtar --exclude='^.*' -tf "$pkgfile" | LC_ALL=C sort -u >>"$files_path" )
-    // atomic replace db
-    // Ensure repo_lock stay alive until the end
-    println!("Unlocked");
+    let mut desc_header = tar::Header::new_gnu();
+    desc_header.set_size(desc_raw.len() as u64);
+    tar_new_db
+        .append_data(&mut desc_header, &desc_path, desc_raw.as_slice())
+        .map_err(|e| {
+            eprintln!("failed to copy db entry to output db: {}", e);
+            9
+        })?;
+    tar_new_files
+        .append_data(&mut desc_header, desc_path, desc_raw.as_slice())
+        .map_err(|e| {
+            eprintln!("failed to copy db entry to output files: {}", e);
+            9
+        })?;
+
+    // Write files in files
+    let files_path = format!("{}-{}/files", pkginfo.pkgname, version);
+    let files_content = generate_files_file(files);
+    let mut files_header = tar::Header::new_gnu();
+    files_header.set_size(files_content.len() as u64);
+    tar_new_files
+        .append_data(&mut files_header, &files_path, files_content.as_slice())
+        .map_err(|e| {
+            eprintln!("failed to copy db entry to output files: {}", e);
+            9
+        })?;
+
+    // Write both to disc
+    let db_out = tar_new_db
+        .into_inner()
+        .map_err(|e| {
+            eprintln!("Failed to write out db archive: {}", e);
+            10
+        })?
+        .finish()
+        .map_err(|e| {
+            eprintln!("Failed to write out db gz: {}", e);
+            11
+        })?;
+    db_out.sync_all().map_err(|e| {
+        eprintln!("Failed to sync out db gz: {}", e);
+        11
+    })?;
+    drop(db_out);
+    let files_out = tar_new_files
+        .into_inner()
+        .map_err(|e| {
+            eprintln!("Failed to write out files archive: {}", e);
+            10
+        })?
+        .finish()
+        .map_err(|e| {
+            eprintln!("Failed to write out files gz: {}", e);
+            11
+        })?;
+    files_out.sync_all().map_err(|e| {
+        eprintln!("Failed to sync out files gz: {}", e);
+        11
+    })?;
+    drop(files_out);
+
+    // Atomic update of both dbs
+    fs::rename(tar_new_db_path, repo_path).map_err(|e| {
+        eprintln!("Failed to overwrite old db with new one: {}", e);
+        11
+    })?;
+    fs::rename(tar_new_files_path, files_path).map_err(|e| {
+        eprintln!("Failed to overwrite old files with new one: {}", e);
+        11
+    })?;
+
+    // Remove old pkg archives not present in the db any more
+    let a = conf.server_dir.clone();
+    for file in to_remove {
+        if let Err(e) = fs::remove_file(a.join(file)) {
+            eprintln!("Failed to remove old package file: {}", e);
+        }
+    }
     drop(repo_lock);
     Ok(())
 }

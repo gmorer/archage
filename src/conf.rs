@@ -324,6 +324,10 @@ impl Conf {
         self.server_dir.join("repo").join("pacage.db.tar.gz")
     }
 
+    pub fn get_repo_files(&self) -> PathBuf {
+        self.server_dir.join("repo").join("pacage.files.tar.gz")
+    }
+
     pub fn remove_src(&self, pkg: &str) {
         if let Err(e) = fs::remove_dir_all(self.pkg_src(pkg)) {
             error!("[{}] could not remove src dir: {}", pkg, e);
@@ -373,4 +377,9 @@ impl Conf {
     //     self.packages.insert(new);
     //     return self.packages.iter().find(|p| p.name == name).unwrap();
     // }
+
+    #[cfg(test)]
+    pub fn create() {
+        /* TODO: create a conf without using fs */
+    }
 }

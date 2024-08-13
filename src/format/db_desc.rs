@@ -322,6 +322,7 @@ impl DbDesc {
         Ok(())
     }
 
+    // TODO: Change return Vec<u8>
     pub fn write(&self, mut writer: impl Write) -> Result<(), DbDescError> {
         for (value, key) in [
             (&self.filename, desc::FILENAME),
