@@ -1,2 +1,7 @@
 /target
 pacage.toml
+test/fake_pkg/pkg/testing_fake_pkg/
+!test/fake_pkg/pkg/testing_fake_pkg/PKGBUILD
+!test/fake_pkg/pkg/testing_fake_pkg/some_file1
+!test/fake_pkg/pkg/testing_fake_pkg/some_file2
+!test/fake_pkg/pkg/testing_fake_pkg/.SRCINFO
