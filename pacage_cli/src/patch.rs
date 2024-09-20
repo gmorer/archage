@@ -1,4 +1,4 @@
-use crate::utils::copy_dir::copy_dir;
+use pacage::utils::copy_dir::copy_dir;
 use std::{
     env,
     fs::{self, File},
@@ -8,14 +8,14 @@ use std::{
 
 use clap::{Args, Subcommand};
 
-use crate::{
+use crate::cmd_err;
+use pacage::{
     builder::Builder,
-    cli::cmd_err,
     cmd::{command, NOENV},
+    conf::Conf,
     download::fetch_pkg,
     format::SrcInfo,
     patch::{find_src, get_patches, patch_dir},
-    Conf,
 };
 
 use super::CliCmd;

@@ -9,7 +9,7 @@ use std::process::{Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
-use crate::Conf;
+use crate::conf::Conf;
 
 pub const NOENV: Option<Vec<(String, String)>> = None::<Vec<(String, String)>>;
 

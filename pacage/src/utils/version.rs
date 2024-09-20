@@ -250,6 +250,17 @@ impl Version {
         }
         panic!("Version length is over the limit")
     }
+
+    #[cfg(test)]
+    pub fn rand() -> Self {
+        use fake::{faker::number::en::NumberWithFormat, Fake};
+        let versioner = NumberWithFormat("^^^");
+        Self {
+            version: versioner.fake(),
+            release: versioner.fake(),
+            epoch: (1..99).fake(),
+        }
+    }
 }
 
 #[cfg(test)]

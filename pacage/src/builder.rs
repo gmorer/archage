@@ -1,16 +1,45 @@
 use crate::conf::{Makepkg, Package};
 use log::{error, info};
 use std::collections::HashSet;
+use std::fmt::Display;
 use std::fs::{self};
 use std::io;
 use std::path::Path;
+use std::time::Duration;
 use thiserror::Error;
 
 use crate::cmd::{command, out_to_file, write_last_lines, CmdError, ExecError, NOENV};
+use crate::conf::{Conf, BUILD_SCRIPT_FILE};
 use crate::format::SrcInfo;
-use crate::{Conf, DurationPrinter, BUILD_SCRIPT_FILE};
 
 const CONTAINER_NAME: &str = "pacage_builder";
+
+pub struct DurationPrinter(Duration);
+
+impl Display for DurationPrinter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let secs = self.0.as_secs();
+        let hours = (secs / 3600) as u16;
+        let minutes = ((secs / 60) % 60) as u16;
+        let seconds = (secs % 60) as u16;
+        if hours == 1 {
+            write!(f, "{} hour ", hours)?;
+        } else if hours > 1 {
+            write!(f, "{} hours ", hours)?;
+        }
+        if minutes == 1 {
+            write!(f, "{} minute ", minutes)?;
+        } else if minutes > 1 {
+            write!(f, "{} minutes ", minutes)?;
+        }
+        if seconds == 1 {
+            write!(f, "{} second ", seconds)?;
+        } else if seconds > 1 {
+            write!(f, "{} seconds", seconds)?;
+        }
+        Ok(())
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum BuilderError {

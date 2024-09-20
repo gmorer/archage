@@ -1,13 +1,11 @@
 use clap::Args;
 use log::error;
 
-use crate::builder;
-use crate::patch::patch;
-use crate::{
-    cli::{cmd_err, CliCmd},
-    db,
-    download::download_pkg,
-};
+use crate::{cmd_err, CliCmd};
+use pacage::builder;
+use pacage::db;
+use pacage::download::download_pkg;
+use pacage::patch::patch;
 
 #[derive(Args, Debug)]
 pub struct Get {

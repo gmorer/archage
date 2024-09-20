@@ -200,4 +200,54 @@ impl PkgInfo {
             checkdepends: self.checkdepends.clone(),
         }
     }
+
+    #[cfg(test)]
+    pub fn rand() -> Self {
+        use fake::{
+            faker::{
+                internet::en::FreeEmail,
+                lorem::en::{Sentence, Word},
+                name::en::FirstName,
+            },
+            Fake, Faker,
+        };
+        let version = Version::rand();
+        Self {
+            pkgname: Word().fake(),
+            pkgver: version.to_string(),
+            version,
+            pkgbase: None,
+            pkgdesc: Sentence(3..5).fake(),
+            size: Faker.fake(),
+            url: None,
+            arch: None,
+            builddate: None,
+            packager: Some(format!(
+                "{} <{}>",
+                FirstName().fake::<&str>(),
+                FreeEmail().fake::<String>()
+            )),
+            groups: Vec::new(),
+            license: Vec::new(),
+            replaces: Vec::new(),
+            depends: Vec::new(),
+            conflicts: Vec::new(),
+            provides: Vec::new(),
+            optdepends: Vec::new(),
+            makedepends: Vec::new(),
+            checkdepends: Vec::new(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Conf;
+    use std::collections::HashSet;
+
+    /// Generate a pkg.tgz with randomm files and a .pkginfo
+    fn create_rand_pkg(conf: &Conf, pkginfo: &PkgInfo) -> HashSet<String> {
+        unimplemented!()
+    }
 }

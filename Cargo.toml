@@ -1,21 +1,11 @@
-[package]
-name = "pacage"
+[workspace]
+resolver = "2"
+
+members = [
+  "pacage",
+  "pacage_cli"
+]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-toml = "0.8"
-serde = { version = "1", features = ["derive"] }
-clap_derive = { version = "4.0.0-rc.1" }
-clap = { version = "4.5.0", features = ["derive"] }
-nix = { version = "0.29", features = ["event", "ioctl"] }
-thiserror = "1.0"
-rayon = "1.8"
-log = { version = "0.4", features = ["kv_unstable"] }
-env_logger = "0.11"
-flate2 = "1.0"
-tar = "0.4"
-sha2 = "0.10"
-base16ct = { version = "0.2", features = ["alloc"] }

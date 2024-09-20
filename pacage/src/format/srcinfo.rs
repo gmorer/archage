@@ -1,6 +1,6 @@
 use super::ParsingError;
 use crate::cmd::{command, CmdError, NOENV};
-use crate::Conf;
+use crate::conf::Conf;
 use std::borrow::Borrow;
 use std::fs;
 use std::io;

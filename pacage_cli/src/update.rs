@@ -2,13 +2,13 @@ use std::collections::BTreeSet;
 
 use clap::Args;
 
-use crate::builder;
-use crate::patch::patch;
-use crate::{
-    cli::{cmd_err, CliCmd},
+use crate::{cmd_err, CliCmd};
+use pacage::builder;
+use pacage::patch::patch;
+use pacage::{
+    conf::Conf,
     db,
     download::{download_all, download_pkg},
-    Conf,
 };
 
 #[derive(Args, Debug)]

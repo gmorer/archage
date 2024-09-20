@@ -3,9 +3,9 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs;
 
 use crate::cmd::{command, CmdError, ExecError};
+use crate::conf::Conf;
 use crate::conf::{Package, Repo};
 use crate::format::{ParsingError, SrcInfo};
-use crate::Conf;
 use thiserror::Error;
 
 // TODO: git goes brr: git clone --filter=tree:0 <repo>

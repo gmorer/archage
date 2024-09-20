@@ -1,7 +1,7 @@
-use crate::builder;
-use crate::cli::{cmd_err, CliCmd};
-use crate::download::download_pkg;
+use crate::{cmd_err, CliCmd};
 use clap::Args;
+use pacage::builder;
+use pacage::download::download_pkg;
 
 #[derive(Args, Debug)]
 pub struct Download {

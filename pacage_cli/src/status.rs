@@ -2,11 +2,11 @@ use std::cmp::max;
 use std::collections::HashMap;
 use std::fs::read_dir;
 
-use crate::cli::CliCmd;
-use crate::format::{DbDesc, SrcInfo};
+use crate::CliCmd;
 use clap::Args;
+use pacage::format::{DbDesc, SrcInfo};
 
-use crate::db;
+use pacage::db;
 
 use super::cmd_err;
 

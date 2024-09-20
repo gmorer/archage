@@ -1,7 +1,7 @@
 use log::{error, warn};
 use serde::Deserialize;
-use std::fs;
-use std::path::PathBuf;
+use std::fs::{self, create_dir_all};
+use std::path::{Path, PathBuf};
 use std::{
     collections::{HashMap, HashSet},
     fs::read_to_string,
@@ -10,10 +10,12 @@ use thiserror::Error;
 use toml::{Table, Value};
 
 const DEFAULT_CONF_DIR: &str = "/etc/pacage";
+const BUILD_SCRIPT_CONTENT: &str = std::include_str!("../../resources/build_pkg.sh");
+pub(crate) const BUILD_SCRIPT_FILE: &str = "pacage_build.sh";
 
-pub const fn default_bool<const V: bool>() -> bool {
-    V
-}
+// pub const fn default_bool<const V: bool>() -> bool {
+//     V
+// }
 
 fn default_name() -> String {
     "/".to_string()
@@ -362,6 +364,37 @@ impl Conf {
         self.packages.iter().find(|p| p.name == name).expect("aa")
     }
 
+    pub fn init(&self) -> Result<(), String> {
+        create_dir_all(&self.server_dir)
+            .map_err(|e| format!("Failed to create server dir: {}", e))?;
+        let pkgs_dir = self.server_dir.join("pkgs");
+        create_dir_all(&pkgs_dir).map_err(|e| format!("Failed to create pkgs dir: {}", e))?;
+        let srcs_dir = self.server_dir.join("srcs");
+        create_dir_all(&srcs_dir).map_err(|e| format!("Failed to create srcs dir: {}", e))?;
+        if let Some(build_log_dir) = &self.build_log_dir {
+            create_dir_all(build_log_dir)
+                .map_err(|e| format!("Failed to create log dir: {}", e))?;
+        }
+        create_dir_all(self.server_dir.join("repo"))
+            .map_err(|e| format!("Failed to create repo dir: {}", e))?;
+        create_dir_all(self.server_dir.join("cache").join("pacman"))
+            .map_err(|e| format!("Failed to create cache dir: {}", e))?;
+        if self
+            .makepkg
+            .as_ref()
+            .is_some_and(|makepkg| makepkg.ccache.is_some_and(|a| a))
+        {
+            create_dir_all(self.server_dir.join("cache").join("ccache"))
+                .map_err(|e| format!("Failed to create ccache dir: {}", e))?;
+        }
+        fs::write(
+            Path::new(&self.server_dir).join(BUILD_SCRIPT_FILE),
+            BUILD_SCRIPT_CONTENT,
+        )
+        .map_err(|e| format!("Failed to write build script: {}", e))?;
+        Ok(())
+    }
+
     // TODO: fix rust polonius
     // pub fn get_or_insert(&mut self, name: &str) -> &Package {
     //     if let Some(p) = self.packages.iter().find(|p| p.name == name) {
@@ -379,7 +412,19 @@ impl Conf {
     // }
 
     #[cfg(test)]
-    pub fn create() {
-        /* TODO: create a conf without using fs */
+    pub fn rand() -> Self {
+        use std::env;
+
+        Self {
+            container_runner: "dunno".to_string(),
+            server_dir: env::temp_dir(),
+            host_server_dir: None,
+            build_log_dir: None,
+            deps: false,
+            conf_dir: PathBuf::from("."),
+            packages: HashSet::new(),
+            makepkg: None,
+            resolver: HashMap::new(),
+        }
     }
 }
