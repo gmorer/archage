@@ -1,4 +1,4 @@
-TEST_PKG:=test/fake_pkg/testing_fake_pkg-2024.04.07-2-any.pkg.tar.zst
+TEST_PKG:=resources/tests/fake_pkg/testing_fake_pkg-2024.04.07-2-any.pkg.tar.zst
 
 .PHONY: all test
 
