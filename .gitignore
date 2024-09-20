@@ -1,7 +1,9 @@
 /target
 pacage.toml
-resources/test/fake_pkg/pkg/testing_fake_pkg/
-!resources/test/fake_pkg/PKGBUILD
-!resources/test/fake_pkg/some_file1
-!resources/test/fake_pkg/some_file2
-!resources/test/fake_pkg/.SRCINFO
+resources/tests/fake_pkg/
+!resources/tests/fake_pkg/PKGBUILD
+!resources/tests/fake_pkg/some_file1
+!resources/tests/fake_pkg/some_file2
+!resources/tests/fake_pkg/.SRCINFO
+
+/tmp

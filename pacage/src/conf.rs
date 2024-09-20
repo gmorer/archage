@@ -1,3 +1,5 @@
+#[cfg(test)]
+use bon::bon;
 use log::{error, warn};
 use serde::Deserialize;
 use std::fs::{self, create_dir_all};
@@ -195,6 +197,7 @@ pub struct Conf {
     pub resolver: HashMap<String, String>,
 }
 
+#[cfg_attr(test, bon)]
 impl Conf {
     const RESOLVE_FILE: &'static str = "resolve.toml";
 
@@ -322,11 +325,11 @@ impl Conf {
         self.server_dir.join("srcs").join(pkg)
     }
 
-    pub fn get_repo(&self) -> PathBuf {
+    pub fn get_repo_db(&self) -> PathBuf {
         self.server_dir.join("repo").join("pacage.db.tar.gz")
     }
 
-    pub fn get_repo_files(&self) -> PathBuf {
+    pub fn get_repo_files_db(&self) -> PathBuf {
         self.server_dir.join("repo").join("pacage.files.tar.gz")
     }
 
@@ -393,6 +396,33 @@ impl Conf {
         )
         .map_err(|e| format!("Failed to write build script: {}", e))?;
         Ok(())
+    }
+
+    #[cfg(test)]
+    #[builder]
+    pub fn _test_builder(
+        server_dir: PathBuf,
+        conf_dir: Option<PathBuf>,
+        deps: Option<bool>,
+        resolver: Option<HashMap<String, String>>,
+    ) -> Self {
+        let _ = env_logger::builder().is_test(true).try_init();
+        Self {
+            container_runner: "podman-remote".to_string(),
+            server_dir,
+            host_server_dir: None,
+            build_log_dir: None,
+            // pub log_on_error: Option<bool>
+            deps: deps.unwrap_or(false),
+            conf_dir: conf_dir.unwrap_or("".into()),
+            // Server dir seen by the container runtime (ex. usage: podman-remote)
+            packages: HashSet::new(),
+            // TODO: container_runner: (podman, docker...)
+            makepkg: None,
+
+            // Never serialized.
+            resolver: resolver.unwrap_or(HashMap::new()),
+        }
     }
 
     // TODO: fix rust polonius

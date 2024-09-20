@@ -1,6 +1,7 @@
 use flate2::read::GzDecoder;
 use flate2::GzBuilder;
 use log::{error, warn};
+use ruzstd::StreamingDecoder;
 // use log::error;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
@@ -72,7 +73,7 @@ pub enum RepoError {
 
 pub fn list(conf: &Conf) -> Result<Vec<DbDesc>, RepoError> {
     let mut pkgs = Vec::new();
-    let tar_gz = File::open(conf.get_repo()).map_err(|_| RepoError::NoRepo)?;
+    let tar_gz = File::open(conf.get_repo_db()).map_err(|_| RepoError::NoRepo)?;
     let tar = GzDecoder::new(tar_gz);
     let mut archive = Archive::new(tar);
     // TODO: check for duplicated pkgs (same pkg not the same version)
@@ -93,8 +94,7 @@ pub fn list(conf: &Conf) -> Result<Vec<DbDesc>, RepoError> {
 
 /// Generate the content of the "files" file
 fn generate_files_file(files: BTreeSet<String>) -> Vec<u8> {
-    let mut res = Vec::with_capacity(8);
-    res.copy_from_slice(b"%FILES%\n");
+    let mut res = Vec::from(b"%FILES%\n");
     for file in files {
         res.push(b'\n');
         res.copy_from_slice(file.as_bytes());
@@ -113,17 +113,28 @@ fn find_package(conf: &Conf, name: &str) -> Option<String> {
     };
     for entry in dir {
         let path = match entry {
-            Ok(e) => e.file_name(),
+            Ok(e) => {
+                if !(e
+                    .file_name()
+                    .to_string_lossy()
+                    .to_string()
+                    .starts_with(&prefix))
+                {
+                    continue;
+                }
+                e.path()
+            }
             Err(e) => {
                 error!("[{}] Fail to check for files in pkg dir: {}", name, e);
                 return None;
             }
         };
-        let path = String::from_utf8_lossy(path.as_encoded_bytes());
-        if path.ends_with(".pkg.tar.zst") && path.starts_with(&prefix) {
+        let path = path.to_string_lossy().to_string();
+        if path.ends_with(".pkg.tar.zst") {
             return Some(path.to_string());
         }
     }
+    error!("[{}] Didnt find any package", name);
     None
 }
 
@@ -138,18 +149,24 @@ fn read_package(
     ),
     i32,
 > {
-    let mut tar_gz = File::open(pkgfile).map_err(|e| {
-        eprintln!("Failed to open the arhive: {}", e);
+    let mut tar_zst = File::open(pkgfile).map_err(|e| {
+        eprintln!("Failed to open the archive: {}", e);
         9
     })?;
-    let mut archive = Archive::new(GzDecoder::new(&tar_gz));
+    let mut archive = Archive::new(StreamingDecoder::new(&tar_zst).map_err(|e| {
+        eprintln!("Decompression error: {}", e);
+        19
+    })?);
     let entries = archive.entries().map_err(|e| {
-        eprintln!("Failed to parse the arhive: {}", e);
+        eprintln!("Failed to parse the archive: {}", e);
         9
     })?;
     let mut pkginfo = None;
     let mut files = BTreeSet::new();
     for entry in entries {
+        if let Err(e) = &entry {
+            eprintln!("error: {}", e);
+        }
         let Ok(entry) = entry else {
             continue;
         };
@@ -160,7 +177,10 @@ fn read_package(
             continue;
         };
         if path == ".PKGINFO" {
-            pkginfo = Some(BufReader::new(entry));
+            pkginfo = Some(PkgInfo::new(BufReader::new(entry)).map_err(|e| {
+                eprintln!("Failed to parse .PKGINFO: {}", e);
+                5
+            })?);
         } else if !path.starts_with(".") && entry.header().entry_type() == tar::EntryType::Regular {
             files.insert(path.to_string());
         }
@@ -170,12 +190,8 @@ fn read_package(
         return Err(3);
     };
 
-    let pkginfo = PkgInfo::new(pkginfo).map_err(|e| {
-        eprintln!("Failed to parse .PKGINFO: {}", e);
-        5
-    })?;
     let mut hasher = Sha256::new();
-    let csize = io::copy(&mut tar_gz, &mut hasher).map_err(|e| {
+    let csize = io::copy(&mut tar_zst, &mut hasher).map_err(|e| {
         eprintln!("Failed to read pkg archive to get the hash: {}", e);
         10
     })?;
@@ -201,7 +217,7 @@ pub fn add(conf: &Conf, name: &str) -> Result<(), String> {
     - UNLOCK DB -
     */
     if let Some(package_file) = find_package(conf, name) {
-        let binding = conf.get_repo();
+        let binding = conf.get_repo_db();
         let db = binding.as_os_str().to_string_lossy();
         // Move the package next to the db
         let tmp = Path::new(&conf.server_dir).join("repo").join(&package_file);
@@ -382,7 +398,7 @@ pub fn add_test(conf: &Conf, name: &str) -> Result<(), i32> {
     let (pkginfo, csize, sha256, files) = read_package(&pkgfile)?;
     let mut to_remove = vec![];
 
-    let repo_lock = FileLock::new(conf.get_repo().with_extension("lock")).map_err(|e| {
+    let repo_lock = FileLock::new(conf.get_repo_db().with_extension("lock")).map_err(|e| {
         eprintln!("Failed to acquire db lock: {}", e);
         3
     })?;
@@ -406,8 +422,8 @@ pub fn add_test(conf: &Conf, name: &str) -> Result<(), i32> {
     ));
 
     // Copy old relevant(everything except our package) entries into the new db
-    let repo_path = conf.get_repo();
-    let files_path = conf.get_repo_files();
+    let repo_path = conf.get_repo_db();
+    let files_path = conf.get_repo_files_db();
     if repo_path.exists() {
         copy_old_db(&mut tar_new_db, &repo_path, &pkginfo, &mut to_remove)?;
     }
@@ -492,6 +508,9 @@ pub fn add_test(conf: &Conf, name: &str) -> Result<(), i32> {
     drop(files_out);
 
     // Atomic update of both dbs
+    // TODO: renameing like that does not work because /tmp is not on the same device :O
+    // This will not work if the new name is on a different mount point.
+    println!("renaming from {:?} to {:?}", tar_new_db_path, repo_path);
     fs::rename(tar_new_db_path, repo_path).map_err(|e| {
         eprintln!("Failed to overwrite old db with new one: {}", e);
         11
@@ -537,5 +556,17 @@ mod tests {
                 .map_err(|e| e.to_string());
             assert_eq!(res, expected, "Testing {}", test);
         }
+    }
+
+    #[test]
+    fn add_items_to_db() {
+        let a = Conf::_test_builder().server_dir("../tmp".into()).call();
+        assert!(matches!(list(&a).unwrap_err(), RepoError::NoRepo));
+        add_test(&a, "testing_fake_pkg").unwrap();
+        let pkg_list = list(&a).unwrap();
+        assert_eq!(pkg_list.len(), 0);
+        let entry = pkg_list.get(0).unwrap();
+        assert_eq!(entry.name, "testing_fake_pkg", "Checking entry name");
+        assert_eq!(entry.version, "2-2024.04.07");
     }
 }

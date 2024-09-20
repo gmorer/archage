@@ -107,6 +107,8 @@ ccache = false
 - [x] Find a solution to find pkgbase from pkgname
 - [x] dependencies (will allow groups)
 - [x] use custom git url (AUR)
+- [ ] use fake to generate random data for tests (Is it needed ?)
+- [ ] copy tmp to random dirs in /tmp for each test to go parallel during testing
 - [ ] check for pkgbuild "epoch" example: https://gitlab.archlinux.org/archlinux/packaging/packages/egl-wayland/-/commit/e385ef755321b1f9dfb1d4a3972d6d96d7ef94c9
 - [ ] implement repo-add for custom fields (pkgrel)
 - [ ] Get rid of zombies pids in between builds 

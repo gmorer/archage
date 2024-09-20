@@ -13,9 +13,12 @@ thiserror = "1.0"
 rayon = "1.8"
 log = { version = "0.4", features = ["kv_unstable"] }
 flate2 = "1.0"
+ruzstd = "0.7.2"
 tar = "0.4"
 sha2 = "0.10"
 base16ct = { version = "0.2", features = ["alloc"] }
 
 [dev-dependencies]
 fake = "2.9.2"
+bon = "2.3"
+env_logger = "0.11"

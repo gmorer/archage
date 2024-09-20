@@ -40,6 +40,9 @@ use super::DbDesc;
 pub enum PkgInfoError {
     #[error("Invalid data: {0}")]
     InvalidData(String),
+
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
 }
 
 // Look like we only actually need:  ensure $pkgname and $pkgver variables were found
@@ -87,7 +90,12 @@ impl PkgInfo {
         let mut makedepends = vec![];
         let mut checkdepends = vec![];
         for line in data.lines() {
-            let Ok(line) = line else { continue };
+            let line = match line {
+                Ok(l) => l,
+                Err(e) => {
+                    return Err(PkgInfoError::Io(e));
+                }
+            };
             if let Some(n) = line.find('=') {
                 if n == line.len() {
                     continue;
@@ -243,7 +251,7 @@ impl PkgInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Conf;
+    use crate::conf::Conf;
     use std::collections::HashSet;
 
     /// Generate a pkg.tgz with randomm files and a .pkginfo
