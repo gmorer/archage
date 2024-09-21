@@ -487,6 +487,7 @@ dependencies = [
  "flate2",
  "log",
  "nix",
+ "rand",
  "rayon",
  "ruzstd",
  "serde",

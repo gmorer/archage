@@ -1,4 +1,4 @@
-pkgname=testing_fake_pkg
+pkgname=testing_fake_pkg1
 pkgver=2024.04.07
 pkgrel=2
 pkgdesc='testing package'

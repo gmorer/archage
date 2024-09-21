@@ -22,3 +22,4 @@ base16ct = { version = "0.2", features = ["alloc"] }
 fake = "2.9.2"
 bon = "2.3"
 env_logger = "0.11"
+rand = "0.8"

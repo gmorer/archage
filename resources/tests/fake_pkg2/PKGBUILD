@@ -1,0 +1,22 @@
+pkgname=testing_fake_pkg2
+pkgver=2024.04.07
+pkgrel=2
+pkgdesc='testing package'
+arch=('any')
+license=('GPL-3.0-or-later')
+depends=()
+source=(
+	'some_file1'
+	'some_file2'
+)
+
+sha256sums=(
+	'dac0d1879eab590f8e30ae40128069b679ab1148a198dea27b19624b80046f74'
+	'ec651c87b99b01e2548d73b882b6ac86470f7c0a45651b9a874f3700d897eafb'
+)
+
+package() {
+	ls
+    install -vDm 600 -o 0 -g 0 "$srcdir/some_file2" /tmp/some_file2
+    install -vDm 600 -o 0 -g 0 "$srcdir/some_file1" /tmp/some_file1
+}

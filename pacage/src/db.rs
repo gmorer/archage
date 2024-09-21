@@ -16,7 +16,7 @@ use crate::cmd::{command, write_last_lines, NOENV};
 use crate::conf::Conf;
 
 use crate::format::{DbDesc, DbDescError, PkgInfo};
-use crate::utils::file_lock::FileLock;
+use crate::utils::file_lock::DirLock;
 use crate::utils::version::Version;
 
 const TMP_DB: &str = "pacage.db.tmp";
@@ -398,14 +398,14 @@ pub fn add_test(conf: &Conf, name: &str) -> Result<(), i32> {
     let (pkginfo, csize, sha256, files) = read_package(&pkgfile)?;
     let mut to_remove = vec![];
 
-    let repo_lock = FileLock::new(conf.get_repo_db().with_extension("lock")).map_err(|e| {
+    let repo_lock = DirLock::new(conf.get_repo_db().with_extension("lock")).map_err(|e| {
         eprintln!("Failed to acquire db lock: {}", e);
         3
     })?;
 
     // Create 2 new temporary dbs
-    let tar_new_db_path = env::temp_dir().join(TMP_DB);
-    let tar_new_files_path = env::temp_dir().join(TMP_FILES);
+    let tar_new_db_path = repo_lock.path().join(TMP_DB);
+    let tar_new_files_path = repo_lock.path().join(TMP_FILES);
     let mut tar_new_db = tar::Builder::new(GzBuilder::new().write(
         File::create(&tar_new_db_path).map_err(|e| {
             eprintln!("Failed to create tmp out db: {}", e);
@@ -462,12 +462,12 @@ pub fn add_test(conf: &Conf, name: &str) -> Result<(), i32> {
         })?;
 
     // Write files in files
-    let files_path = format!("{}-{}/files", pkginfo.pkgname, version);
+    let new_files_path = format!("{}-{}/files", pkginfo.pkgname, version);
     let files_content = generate_files_file(files);
     let mut files_header = tar::Header::new_gnu();
     files_header.set_size(files_content.len() as u64);
     tar_new_files
-        .append_data(&mut files_header, &files_path, files_content.as_slice())
+        .append_data(&mut files_header, &new_files_path, files_content.as_slice())
         .map_err(|e| {
             eprintln!("failed to copy db entry to output files: {}", e);
             9
@@ -508,9 +508,6 @@ pub fn add_test(conf: &Conf, name: &str) -> Result<(), i32> {
     drop(files_out);
 
     // Atomic update of both dbs
-    // TODO: renameing like that does not work because /tmp is not on the same device :O
-    // This will not work if the new name is on a different mount point.
-    println!("renaming from {:?} to {:?}", tar_new_db_path, repo_path);
     fs::rename(tar_new_db_path, repo_path).map_err(|e| {
         eprintln!("Failed to overwrite old db with new one: {}", e);
         11
@@ -533,7 +530,6 @@ pub fn add_test(conf: &Conf, name: &str) -> Result<(), i32> {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
 
     #[test]
@@ -562,11 +558,14 @@ mod tests {
     fn add_items_to_db() {
         let a = Conf::_test_builder().server_dir("../tmp".into()).call();
         assert!(matches!(list(&a).unwrap_err(), RepoError::NoRepo));
-        add_test(&a, "testing_fake_pkg").unwrap();
+        add_test(&a, "testing_fake_pkg1").unwrap();
         let pkg_list = list(&a).unwrap();
-        assert_eq!(pkg_list.len(), 0);
+        assert_eq!(pkg_list.len(), 1);
         let entry = pkg_list.get(0).unwrap();
-        assert_eq!(entry.name, "testing_fake_pkg", "Checking entry name");
-        assert_eq!(entry.version, "2-2024.04.07");
+        assert_eq!(entry.name, "testing_fake_pkg1", "Checking entry name");
+        assert_eq!(entry.version, "2024.04.07-2");
+        add_test(&a, "testing_fake_pkg2").unwrap();
+        let pkg_list = list(&a).unwrap();
+        assert_eq!(pkg_list.len(), 2);
     }
 }

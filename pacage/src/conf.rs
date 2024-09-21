@@ -406,10 +406,14 @@ impl Conf {
         deps: Option<bool>,
         resolver: Option<HashMap<String, String>>,
     ) -> Self {
+        use crate::utils::copy_dir::copy_dir;
+
         let _ = env_logger::builder().is_test(true).try_init();
+        let tmp_server_dir = tests::mktemp();
+        copy_dir(server_dir, &tmp_server_dir).unwrap();
         Self {
             container_runner: "podman-remote".to_string(),
-            server_dir,
+            server_dir: tmp_server_dir,
             host_server_dir: None,
             build_log_dir: None,
             // pub log_on_error: Option<bool>
@@ -455,6 +459,30 @@ impl Conf {
             packages: HashSet::new(),
             makepkg: None,
             resolver: HashMap::new(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+
+    use rand::{self, distributions::Alphanumeric, Rng};
+
+    pub fn mktemp() -> PathBuf {
+        const BASE: &str = "pacage";
+        let key: String = rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(7)
+            .map(char::from)
+            .collect();
+        let tmp_server_dir = env::temp_dir().join(format!("{}-{}", BASE, key));
+        if tmp_server_dir.exists() {
+            mktemp()
+        } else {
+            fs::create_dir(&tmp_server_dir).unwrap();
+            tmp_server_dir
         }
     }
 }
