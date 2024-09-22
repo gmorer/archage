@@ -66,12 +66,9 @@ pub fn fetch_pkg(conf: &Conf, pkg: &Package) -> Result<SrcInfo, DownloadError> {
         }
     };
     if status.success() {
-        info!("[{}] Download package", pkg.name);
         Ok(SrcInfo::new(conf, &pkg.name)?)
     } else {
-        error!("[{}] Failed to download", pkg.name);
         Err(DownloadError::NotFound(out))?
-        // Err(CmdError::from_output(out))?
     }
 }
 

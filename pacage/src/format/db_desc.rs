@@ -3,6 +3,8 @@ use std::io::{self, Write};
 use std::io::{BufRead, Lines};
 use thiserror::Error;
 
+use crate::utils::version::Version;
+
 /*
 pacage.db.tar.gz:
 ==== bash/desc ====
@@ -99,6 +101,7 @@ pub struct DbDesc {
     pub base: Option<String>,
     // [epoch:]version[-release]
     pub version: String,
+    pub _version: Version,
     pub desc: Option<String>,
     pub groups: Vec<String>,
     pub csize: u64,
@@ -268,6 +271,9 @@ impl DbDesc {
                 desc::VERSION
             )));
         };
+        let _version = Version::try_from(version.as_str()).map_err(|e| {
+            DbDescError::InvalidData(format!("Failed to parse version({}): {}", version, e))
+        })?;
         let Some(csize) = csize else {
             return Err(DbDescError::InvalidData(format!(
                 "Missing {} value",
@@ -285,6 +291,7 @@ impl DbDesc {
             name,
             base,
             version,
+            _version,
             desc,
             groups,
             csize,
@@ -323,7 +330,7 @@ impl DbDesc {
     }
 
     // TODO: Change return Vec<u8>
-    pub fn write(&self, mut writer: impl Write) -> Result<(), DbDescError> {
+    pub fn write(&self, mut writer: impl Write) -> Result<(), io::Error> {
         for (value, key) in [
             (&self.filename, desc::FILENAME),
             (&self.name, desc::NAME),
@@ -372,6 +379,10 @@ impl DbDesc {
         }
         Ok(())
     }
+
+    pub fn get_version(&self) -> &Version {
+        &self._version
+    }
 }
 
 // key = None;
@@ -383,11 +394,13 @@ mod tests {
 
     #[test]
     fn valid() {
+        let _version = Version::rand();
         let orig = DbDesc {
             filename: "test.pkg".to_string(),
             name: "pkgname".to_string(),
             base: None,
-            version: "aaaa".to_string(),
+            version: _version.to_string(),
+            _version,
             desc: Some("Some random pkg test".to_string()),
             groups: vec!["base".to_string()],
             csize: 32,

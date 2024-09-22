@@ -1,9 +1,10 @@
 use super::ParsingError;
 use crate::cmd::{command, CmdError, NOENV};
 use crate::conf::Conf;
+use crate::utils::version::Version;
 use std::borrow::Borrow;
 use std::fs;
-use std::io;
+use std::io::{self, Write};
 use std::io::{BufRead, BufReader};
 use thiserror::Error;
 
@@ -74,10 +75,11 @@ pub enum SrcInfoError {
 pub struct SrcInfo {
     pub name: String,
     pub pkgver: String, // Cannot contain "-"
-    pub pkgrel: u32,
+    pub pkgrel: Option<String>,
     pub epoch: Option<u32>,
     pub deps: Vec<String>,
     pub src: bool,
+    _version: Version,
 }
 
 impl std::cmp::PartialEq for SrcInfo {
@@ -117,13 +119,7 @@ impl SrcInfo {
                 match key {
                     "pkgbase" => name = Some(v.to_string()),
                     "pkgver" => version = Some(v.to_string()),
-                    "pkgrel" => match v.parse::<u32>() {
-                        Ok(r) => release = Some(r),
-                        Err(e) => Err(SrcInfoError::InvalidData(format!(
-                            "Invalid pkgrel from {}: {}",
-                            v, e
-                        )))?,
-                    },
+                    "pkgrel" => release = Some(v.to_string()),
                     "epoch" => match v.parse::<u32>() {
                         Ok(r) => epoch = Some(r),
                         Err(e) => Err(SrcInfoError::InvalidData(format!(
@@ -137,20 +133,24 @@ impl SrcInfo {
                 }
             }
         }
-        if name.is_some() && version.is_some() && release.is_some() {
-            return Ok(Self {
-                name: name.unwrap(),
-                pkgver: version.unwrap(),
-                pkgrel: release.unwrap(),
-                epoch,
-                deps,
-                src,
-            });
+        match (&name, &version) {
+            (Some(name), Some(version)) => {
+                let version = version.to_string();
+                return Ok(Self {
+                    _version: Version::new(&version, release.as_deref(), epoch),
+                    name: name.to_string(),
+                    pkgver: version,
+                    pkgrel: release,
+                    epoch,
+                    deps,
+                    src,
+                });
+            }
+            _ => Err(SrcInfoError::InvalidData(format!(
+                "Missing field in pkgver, name: {:?} version: {:?} releasze: {:?}",
+                name, version, release
+            )))?,
         }
-        Err(SrcInfoError::InvalidData(format!(
-            "Missing field in pkgver, name: {:?} version: {:?} releasze: {:?}",
-            name, version, release
-        )))?
     }
 
     // Not the best way :/
@@ -179,6 +179,11 @@ impl SrcInfo {
                 return Err(SrcInfoError::Cmd(CmdError::from_output(out)).into());
             }
             let content = out.join("\n");
+            if let Ok(mut f) = fs::File::create(path) {
+                f.write_all(content.as_bytes())
+                    .map(|_| f.sync_all().ok())
+                    .ok();
+            }
             Self::parse(content.lines())
         } else {
             let file = fs::File::open(path).map_err(|e| SrcInfoError::Io(e))?;
@@ -187,5 +192,9 @@ impl SrcInfo {
                 Err(_) => None,
             }))
         }
+    }
+
+    pub fn get_version(&self) -> &Version {
+        &self._version
     }
 }

@@ -1,9 +1,6 @@
 use clap::{command, Args, Parser, Subcommand};
 use log::{error, LevelFilter};
 use std::fmt::Display;
-use std::fs::{self, create_dir_all};
-use std::path::Path;
-use std::time::Duration;
 
 use pacage::conf::Conf;
 
@@ -53,9 +50,6 @@ enum Commands {
     /// Patch utilities
     #[command(subcommand)]
     Patch(patch::Patch),
-
-    // test
-    RepoAdd(RepoAdd),
 }
 
 #[derive(Args, Debug)]
@@ -73,7 +67,6 @@ impl CliCmd for Commands {
             Commands::Update(a) => a.execute(conf),
             Commands::Status(a) => a.execute(conf),
             Commands::Patch(a) => a.execute(conf),
-            Commands::RepoAdd(a) => pacage::db::add_test(&conf, &a.name),
         }
     }
 }

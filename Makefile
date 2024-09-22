@@ -7,7 +7,7 @@ all:
 	cargo build
 	
 test: $(TEST_PKG1) $(TEST_PKG2)
-	cargo test
+	@cargo test
 
 $(TEST_PKG1): 
 	mkdir -p tmp/repo && cd resources/tests/fake_pkg1/ && PKGDEST=../../../tmp/repo makepkg

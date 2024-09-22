@@ -27,7 +27,7 @@ impl CliCmd for Status {
         let mut name_max_len = 0;
         let mut version_max_len = 0;
         let mut res: HashMap<String, StatusPkg> = HashMap::new();
-        // TODO: this is slow
+        // TODO: move this to pacage
         for file in read_dir(conf.server_dir.join("pkgs")).map_err(cmd_err)? {
             if let Ok(file) = file {
                 if let Ok(typ) = file.file_type() {
@@ -97,10 +97,11 @@ impl CliCmd for Status {
                 println!("{:1$} Not downloaded/built", name, max_len);
             }
         }
+        // TODO: real version parsing
         for (name, (src, repo)) in res {
             match (src, repo) {
                 (Some(src), Some(db)) => {
-                    if src.pkgver != db.version {
+                    if src.get_version() != db.get_version() {
                         println!(
                             "{:width$} outdated, new version: {} (not in conf)",
                             format!("{}({})", name, db.version),

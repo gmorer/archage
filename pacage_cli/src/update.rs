@@ -69,7 +69,6 @@ impl Update {
             println!("Nothing to do :)");
             return Ok(());
         }
-        println!("pkgs to build: {:?}", pkgbuilds);
         let builder = builder::Builder::new(&conf).map_err(cmd_err)?;
         for pkgbuild in pkgbuilds {
             if pkgbuild.src == false {

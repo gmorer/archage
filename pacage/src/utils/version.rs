@@ -1,6 +1,6 @@
-use std::cmp::Ordering;
+use std::{cmp::Ordering, fmt::Display};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Version {
     version: String,
     release: Option<String>,
@@ -71,14 +71,16 @@ impl Ord for Version {
     }
 }
 
-impl ToString for Version {
-    fn to_string(&self) -> String {
-        match (self.epoch, &self.release) {
-            (Some(epoch), Some(release)) => format!("{}:{}-{}", epoch, self.version, release),
-            (None, Some(release)) => format!("{}-{}", self.version, release),
-            (Some(epoch), None) => format!("{}:{}", epoch, self.version),
-            (None, None) => self.version.clone(),
+impl Display for Version {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(epoch) = self.epoch {
+            write!(f, "{}:", epoch)?;
         }
+        write!(f, "{}", self.version)?;
+        if let Some(release) = &self.release {
+            write!(f, "-{}", release)?;
+        }
+        Ok(())
     }
 }
 
@@ -116,7 +118,7 @@ impl Version {
         let mut state = State::NonAlphaNum;
         let mut one = a.chars();
         let mut two = b.chars();
-        for i in 0..9999 {
+        for _ in 0..9999 {
             match state {
                 State::NonAlphaNum => match (one.next(), two.next()) {
                     (Some(c_a), Some(c_b)) => {
