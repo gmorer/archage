@@ -67,7 +67,7 @@ impl CliCmd for Get {
                     return Err(e);
                 }
             }
-            if let Err(e) = db::add(&conf, &pkg.name).map_err(cmd_err) {
+            if let Err(e) = db::add(&conf, &pkgbuild).map_err(cmd_err) {
                 if self.continue_on_error {
                     error!("[{}] Database error: {}", pkg.name, e);
                     continue;

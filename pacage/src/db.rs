@@ -13,7 +13,7 @@ use thiserror::Error;
 
 use crate::conf::Conf;
 
-use crate::format::{DbDesc, DbDescError, PkgInfo};
+use crate::format::{DbDesc, DbDescError, PkgInfo, SrcInfo};
 use crate::utils::file_lock::DirLock;
 use crate::utils::version::Version;
 
@@ -114,42 +114,6 @@ fn generate_files_file(files: BTreeSet<String>) -> Vec<u8> {
     res
 }
 
-fn find_package(conf: &Conf, name: &str) -> Option<String> {
-    let prefix = format!("{}-", name);
-    let dir = match fs::read_dir(conf.server_dir.join("repo")) {
-        Ok(d) => d,
-        Err(e) => {
-            error!("[{}] Fail to open pkg dir: {}", name, e);
-            return None;
-        }
-    };
-    for entry in dir {
-        let path = match entry {
-            Ok(e) => {
-                if !(e
-                    .file_name()
-                    .to_string_lossy()
-                    .to_string()
-                    .starts_with(&prefix))
-                {
-                    continue;
-                }
-                e.path()
-            }
-            Err(e) => {
-                error!("[{}] Fail to check for files in pkg dir: {}", name, e);
-                return None;
-            }
-        };
-        let path = path.to_string_lossy().to_string();
-        if path.ends_with(".pkg.tar.zst") {
-            return Some(path.to_string());
-        }
-    }
-    error!("[{}] Didnt find any package", name);
-    None
-}
-
 fn read_package(
     pkgfile: &str,
 ) -> Result<
@@ -161,8 +125,8 @@ fn read_package(
     ),
     AddError,
 > {
-    let mut tar_zst =
-        File::open(pkgfile).inspect_err(|e| error!("Failed to open the archive: {}", e))?;
+    let mut tar_zst = File::open(pkgfile)
+        .inspect_err(|e| error!("Failed to open the archive({}): {}", pkgfile, e))?;
     let mut archive = Archive::new(
         StreamingDecoder::new(&tar_zst)
             .map_err(|e| AddError::Encoding(format!("Zstd error: {}", e)))?,
@@ -279,6 +243,7 @@ where
                         // warning "$(gettext "A newer version for '%s' is already present in database")" "$pkgname"
                         // if (( PREVENT_DOWNGRADE )); then
                         // 	return 0
+                        warn!("[{}] A newer version({}) is already present in database, trying to install: {}", ename, eversion, pkginfo.version);
                         unimplemented!();
                     } else if eversion < pkginfo.version {
                         let edesc = DbDesc::new(BufReader::new(&mut entry)).map_err(|e| {
@@ -347,13 +312,28 @@ where
 }
 
 /// Basicly repo-add reimplementation
-pub fn add(conf: &Conf, name: &str) -> Result<(), AddError> {
+pub fn add(conf: &Conf, pkg: &SrcInfo) -> Result<(), AddError> {
     // TODO: take in multiple packages
-    let Some(pkgfile) = find_package(conf, name) else {
-        return Err(AddError::PkgNotFound(name.to_string()));
-    };
+    let pkgfile = conf
+        .server_dir
+        .join("repo")
+        .join(format!(
+            "{}-{}-{}.pkg.tar.zst",
+            pkg.name,
+            pkg.get_version(),
+            pkg.arch
+        ))
+        .to_string_lossy()
+        .to_string();
     let (pkginfo, csize, sha256, files) = read_package(&pkgfile)?;
     let mut to_remove = vec![];
+    if &pkginfo.version != pkg.get_version() {
+        Err(AddError::Parsing(format!(
+            "Version mismatch from created package({}) to request package({})",
+            pkginfo.version,
+            pkg.get_version()
+        )))?;
+    }
 
     let repo_lock = DirLock::new(conf.get_repo_db().with_extension("lock")).map_err(|e| {
         error!("Failed to lock db: {}", e);
@@ -446,7 +426,7 @@ pub fn add(conf: &Conf, name: &str) -> Result<(), AddError> {
         .inspect_err(|e| error!("Failed to overwrite old files with new one: {}", e))?;
 
     // Remove old pkg archives not present in the db any more
-    let a = conf.server_dir.clone();
+    let a = conf.server_dir.join("repo");
     for file in to_remove {
         if let Err(e) = fs::remove_file(a.join(&file)) {
             error!("Failed to remove old package file({}): {}", file, e);
@@ -486,13 +466,15 @@ mod tests {
     fn add_items_to_db() {
         let a = Conf::_test_builder().server_dir("../tmp".into()).call();
         assert!(matches!(list(&a).unwrap_err(), RepoError::NoRepo));
-        add(&a, "testing_fake_pkg1").unwrap();
+        let pkginfo1 = SrcInfo::new(&a, "fake_pkg1").unwrap();
+        add(&a, &pkginfo1).unwrap();
         let pkg_list = list(&a).unwrap();
         assert_eq!(pkg_list.len(), 1);
         let entry = pkg_list.get(0).unwrap();
-        assert_eq!(entry.name, "testing_fake_pkg1", "Checking entry name");
+        assert_eq!(entry.name, "fake_pkg1", "Checking entry name");
         assert_eq!(entry.version, "2024.04.07-2");
-        add(&a, "testing_fake_pkg2").unwrap();
+        let pkginfo2 = SrcInfo::new(&a, "fake_pkg2").unwrap();
+        add(&a, &pkginfo2).unwrap();
         let pkg_list = list(&a).unwrap();
         assert_eq!(pkg_list.len(), 2);
     }

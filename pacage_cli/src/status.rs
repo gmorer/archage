@@ -4,6 +4,7 @@ use std::fs::read_dir;
 
 use crate::CliCmd;
 use clap::Args;
+use pacage::conf::Package;
 use pacage::format::{DbDesc, SrcInfo};
 
 use pacage::db;
@@ -36,7 +37,7 @@ impl CliCmd for Status {
                         let name = name.to_string_lossy();
                         let pkg = SrcInfo::new(&conf, name.as_ref()).map_err(cmd_err)?;
                         name_max_len = max(name_max_len, pkg.name.len());
-                        version_max_len = max(version_max_len, pkg.pkgver.len());
+                        version_max_len = max(version_max_len, pkg.get_version().to_string().len());
                         res.insert(pkg.name.clone(), (Some(pkg), None));
                     }
                 }
@@ -45,32 +46,34 @@ impl CliCmd for Status {
         for p in db::list(&conf).map_err(cmd_err)? {
             if let Some((_, ref mut pkg)) = res.get_mut(&p.name) {
                 name_max_len = max(name_max_len, p.name.len());
-                version_max_len = max(version_max_len, p.version.len());
+                version_max_len = max(version_max_len, p.get_version().to_string().len());
                 *pkg = Some(p);
             } else {
                 res.insert(p.name.clone(), (None, Some(p)));
             }
         }
-        for pkg in &conf.packages {
+        let mut confpkgs: Vec<&Package> = conf.packages.iter().collect();
+        confpkgs.sort_by(|a, b| a.name.cmp(&b.name));
+        for pkg in &confpkgs {
             name_max_len = max(name_max_len, pkg.name.len());
         }
         let max_len = name_max_len + version_max_len + 2;
-        for pkg in &conf.packages {
+        for pkg in confpkgs {
             let name = &pkg.name;
             if let Some(pkg) = res.remove(name) {
                 match pkg {
                     (Some(src), Some(db)) => {
-                        if src.pkgver != db.version {
+                        if src.get_version() != db.get_version() {
                             println!(
                                 "{:width$} outdated, new version: {}",
-                                format!("{}({})", name, db.version),
+                                format!("{}({})", name, db.get_version()),
                                 src.pkgver,
                                 width = max_len,
                             );
                         } else {
                             println!(
                                 "{:width$} Built!",
-                                format!("{}({})", name, db.version),
+                                format!("{}({})", name, db.get_version()),
                                 width = max_len
                             );
                         }
@@ -78,7 +81,7 @@ impl CliCmd for Status {
                     (Some(src), None) => {
                         println!(
                             "{:width$} Downloaded, not built",
-                            format!("{}({})", name, src.pkgver),
+                            format!("{}({})", name, src.get_version()),
                             width = max_len
                         );
                         // With src not installed
@@ -86,7 +89,7 @@ impl CliCmd for Status {
                     (None, Some(db)) => {
                         println!(
                             "{:width$} Built missing src",
-                            format!("{}({})", name, db.version),
+                            format!("{}({})", name, db.get_version()),
                             width = max_len
                         );
                         // Installed no src
@@ -98,20 +101,23 @@ impl CliCmd for Status {
             }
         }
         // TODO: real version parsing
-        for (name, (src, repo)) in res {
+        let mut otherpkgs: Vec<(&String, &(Option<SrcInfo>, Option<DbDesc>))> =
+            res.iter().collect();
+        otherpkgs.sort_by(|a, b| a.0.cmp(b.0));
+        for (name, (src, repo)) in otherpkgs {
             match (src, repo) {
                 (Some(src), Some(db)) => {
                     if src.get_version() != db.get_version() {
                         println!(
                             "{:width$} outdated, new version: {} (not in conf)",
-                            format!("{}({})", name, db.version),
+                            format!("{}({})", name, db.get_version()),
                             src.pkgver,
                             width = max_len,
                         );
                     } else {
                         println!(
                             "{:width$} Built! (not in conf)",
-                            format!("{}({})", name, db.version),
+                            format!("{}({})", name, db.get_version()),
                             width = max_len
                         );
                     }
@@ -119,7 +125,7 @@ impl CliCmd for Status {
                 (Some(src), None) => {
                     println!(
                         "{:width$} Downloaded, not built (not in conf)",
-                        format!("{}({})", name, src.pkgver),
+                        format!("{}({})", name, src.get_version()),
                         width = max_len
                     );
                     // With src not installed
@@ -127,7 +133,7 @@ impl CliCmd for Status {
                 (None, Some(db)) => {
                     println!(
                         "{:width$} Built missing src (not in conf)",
-                        format!("{}({})", name, db.version),
+                        format!("{}({})", name, db.get_version()),
                         width = max_len
                     );
                     // Installed no src

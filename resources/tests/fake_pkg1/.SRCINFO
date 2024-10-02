@@ -1,4 +1,4 @@
-pkgbase = testing_fake_pkg
+pkgbase = fake_pkg1
 	pkgdesc = testing package
 	pkgver = 2024.04.07
 	pkgrel = 2
@@ -9,4 +9,4 @@ pkgbase = testing_fake_pkg
 	sha256sums = dac0d1879eab590f8e30ae40128069b679ab1148a198dea27b19624b80046f74
 	sha256sums = ec651c87b99b01e2548d73b882b6ac86470f7c0a45651b9a874f3700d897eafb
 
-pkgname = testing_fake_pkg
+pkgname = fake_pkg1

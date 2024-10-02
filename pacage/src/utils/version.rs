@@ -173,8 +173,8 @@ impl Version {
                                     (true, true) => {
                                         res_a *= 10;
                                         res_b *= 10;
-                                        res_a += c_a as u8 as u64;
-                                        res_b += c_b as u8 as u64;
+                                        res_a += (c_a as u8 - '0' as u8) as u64;
+                                        res_b += (c_b as u8 - '0' as u8) as u64;
                                     }
                                     (true, false) => return Ordering::Greater,
                                     (false, true) => return Ordering::Less,
@@ -232,10 +232,16 @@ impl Version {
                                     (false, true) => return Ordering::Less,
                                     (false, false) => {
                                         match (c_a.is_ascii_digit(), c_b.is_ascii_digit()) {
-                                            (true, true) => state = State::Number(c_a, c_b),
+                                            (true, true) => {
+                                                state = State::Number(c_a, c_b);
+                                                break;
+                                            }
                                             (true, false) => return Ordering::Less,
                                             (false, true) => return Ordering::Greater,
-                                            (false, false) => state = State::NonAlphaNum,
+                                            (false, false) => {
+                                                state = State::NonAlphaNum;
+                                                break;
+                                            }
                                         }
                                     }
                                 }
@@ -333,6 +339,10 @@ mod tests {
             ("1:1.0", "1.0", Ordering::Greater),
             ("1:1.0", "1.1", Ordering::Greater),
             ("1:1.1", "1.1", Ordering::Greater),
+            ("1:1.1", "1.1", Ordering::Greater),
+            ("r7", "r21", Ordering::Less),
+            ("r7.4", "r21.4", Ordering::Less),
+            ("1.8.2.r7.g64-1", "1.8.2.r21.gaa-1", Ordering::Less),
         ] {
             let va = Version::try_from(a).expect(&format!("Failed to parse Version for {}", a));
             let vb = Version::try_from(b).expect(&format!("Failed to parse Version for {}", b));

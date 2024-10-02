@@ -2,6 +2,7 @@ use super::ParsingError;
 use crate::cmd::{command, CmdError, NOENV};
 use crate::conf::Conf;
 use crate::utils::version::Version;
+use log::warn;
 use std::borrow::Borrow;
 use std::fs;
 use std::io::{self, Write};
@@ -79,6 +80,7 @@ pub struct SrcInfo {
     pub epoch: Option<u32>,
     pub deps: Vec<String>,
     pub src: bool,
+    pub arch: String,
     _version: Version,
 }
 
@@ -108,6 +110,7 @@ impl SrcInfo {
         let mut src = false;
         let mut epoch = None;
         let mut release = None;
+        let mut arch = None;
         for line in lines {
             let line = line.borrow();
             if let Some(n) = line.find('=') {
@@ -120,6 +123,12 @@ impl SrcInfo {
                     "pkgbase" => name = Some(v.to_string()),
                     "pkgver" => version = Some(v.to_string()),
                     "pkgrel" => release = Some(v.to_string()),
+                    "arch" => {
+                        if arch.is_some() {
+                            warn!("pacage currently doesnt support multi arch packages");
+                        }
+                        arch = Some(v.to_string());
+                    }
                     "epoch" => match v.parse::<u32>() {
                         Ok(r) => epoch = Some(r),
                         Err(e) => Err(SrcInfoError::InvalidData(format!(
@@ -133,14 +142,15 @@ impl SrcInfo {
                 }
             }
         }
-        match (&name, &version) {
-            (Some(name), Some(version)) => {
+        match (&name, &version, &arch) {
+            (Some(name), Some(version), Some(arch)) => {
                 let version = version.to_string();
                 return Ok(Self {
                     _version: Version::new(&version, release.as_deref(), epoch),
                     name: name.to_string(),
                     pkgver: version,
                     pkgrel: release,
+                    arch: arch.to_string(),
                     epoch,
                     deps,
                     src,
@@ -180,9 +190,7 @@ impl SrcInfo {
             }
             let content = out.join("\n");
             if let Ok(mut f) = fs::File::create(path) {
-                f.write_all(content.as_bytes())
-                    .map(|_| f.sync_all().ok())
-                    .ok();
+                f.write_all(content.as_bytes()).ok();
             }
             Self::parse(content.lines())
         } else {

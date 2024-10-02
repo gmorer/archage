@@ -29,7 +29,7 @@ impl CliCmd for Build {
             .build_pkg(&conf, pkg)
             // .build_pkg(conf, &self.name, makepkg)
             .map_err(cmd_err)?;
-        db::add(&conf, &pkg.name).map_err(cmd_err)?;
+        db::add(&conf, &pkg_build).map_err(cmd_err)?;
         Ok(())
     }
 }

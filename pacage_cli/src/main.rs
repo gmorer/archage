@@ -5,6 +5,7 @@ use std::fmt::Display;
 use pacage::conf::Conf;
 
 mod build;
+mod clean;
 mod download;
 mod get;
 mod patch;
@@ -50,6 +51,9 @@ enum Commands {
     /// Patch utilities
     #[command(subcommand)]
     Patch(patch::Patch),
+
+    /// Clean utilities
+    Clean(clean::Clean),
 }
 
 #[derive(Args, Debug)]
@@ -67,6 +71,7 @@ impl CliCmd for Commands {
             Commands::Update(a) => a.execute(conf),
             Commands::Status(a) => a.execute(conf),
             Commands::Patch(a) => a.execute(conf),
+            Commands::Clean(a) => a.execute(conf),
         }
     }
 }

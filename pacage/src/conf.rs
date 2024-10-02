@@ -172,8 +172,11 @@ impl Makepkg {
             .unwrap_or(Some(def.is_some_and(|d| d.ccache.is_some_and(|d| d))))
             .is_some_and(|a| a)
         {
-            file.push_str("BUILDENV=(!distcc color ccache check !sign)");
+            file.push_str("BUILDENV=(!distcc color ccache check !sign)\n");
         }
+        file.push_str(
+            "OPTIONS=(strip docs !libtool !staticlibs emptydirs zipman purge !debug lto)\n",
+        );
         Ok(file)
     }
 }

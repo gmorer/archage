@@ -1,6 +1,8 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 
 use clap::Args;
+use log::error;
+use pacage::format::SrcInfo;
 
 use crate::{cmd_err, CliCmd};
 use pacage::builder;
@@ -17,6 +19,10 @@ pub struct Update {
     #[arg(short)]
     pub force_rebuild: bool,
 
+    /// Skip initial fetch of any news version of the packages, only usefull when some build previously failed
+    #[arg(long)]
+    pub no_fetch: bool,
+
     /// Package name
     pub name: Option<String>,
 }
@@ -32,7 +38,16 @@ impl CliCmd for Update {
 
 impl Update {
     fn update_one(&self, mut conf: Conf, name: &str) -> Result<(), i32> {
-        let pkgbuilds = download_pkg(&mut conf, &name, false).map_err(cmd_err)?;
+        let pkgbuilds = if !self.no_fetch {
+            download_pkg(&mut conf, &name, false).map_err(cmd_err)?
+        } else {
+            let mut res = HashSet::new();
+            res.insert(SrcInfo::new(&conf, name).map_err(|e| {
+                error!("Failed to parse .SRCINFO: {}", e);
+                2
+            })?);
+            res
+        };
         if !builder::should_build(&pkgbuilds) {
             println!("Nothing to do :)");
             return Ok(());
@@ -50,24 +65,44 @@ impl Update {
             }
             patch(&conf, &pkgbuild).map_err(cmd_err)?;
             builder.build_pkg(&conf, pkg).map_err(cmd_err)?;
-            db::add(&conf, &pkg.name).map_err(cmd_err)?;
+            db::add(&conf, &pkgbuild).map_err(cmd_err)?;
         }
         Ok(())
     }
 
     fn update_all(&self, mut conf: Conf) -> Result<(), i32> {
         // TODO: get it from install db instead
-        // TODO: check if we have src from these, get SRCINFO from it
-        // TODO: redownload theses :/ (maybe we shoud not :/)
         let mut to_dl = BTreeSet::new();
         for k in &conf.packages {
             to_dl.insert(k.name.clone());
         }
-        let pkgbuilds = download_all(&mut conf, to_dl, true).map_err(cmd_err)?;
-        // Check whats installed
-        if !builder::should_build(&pkgbuilds) {
-            println!("Nothing to do :)");
-            return Ok(());
+        let mut pkgbuilds = if self.no_fetch {
+            let mut res = HashSet::new();
+            for pkg in to_dl {
+                match SrcInfo::new(&conf, &pkg) {
+                    Ok(pkg) => {
+                        res.insert(pkg);
+                    }
+                    Err(e) => error!("[{}] Fail to read .SRCINFO: {}", pkg, e),
+                }
+            }
+            res
+        } else {
+            download_all(&mut conf, to_dl, true).map_err(cmd_err)?
+        };
+
+        // Check if package is already there
+        if let Ok(dbpkgs) = db::list(&conf) {
+            pkgbuilds.retain(|wanted_pkg| {
+                for db_package in &dbpkgs {
+                    if wanted_pkg.name == db_package.name
+                        && wanted_pkg.get_version() == db_package.get_version()
+                    {
+                        return false;
+                    }
+                }
+                true
+            })
         }
         let builder = builder::Builder::new(&conf).map_err(cmd_err)?;
         for pkgbuild in pkgbuilds {
@@ -78,12 +113,28 @@ impl Update {
             conf.ensure_pkg(name);
             let pkg = conf.get(name.clone());
             let makepkg = pkg.makepkg.as_ref();
-            builder
-                .download_src(&conf, name, makepkg)
-                .map_err(cmd_err)?;
-            patch(&conf, &pkgbuild).map_err(cmd_err)?;
-            builder.build_pkg(&conf, pkg).map_err(cmd_err)?;
-            db::add(&conf, name).map_err(cmd_err)?;
+            if let Err(e) = builder.download_src(&conf, name, makepkg).map_err(cmd_err) {
+                error!(
+                    "[{}] Skipping build, failed to download sources: {}",
+                    name, e
+                );
+                continue;
+            }
+            if let Err(e) = patch(&conf, &pkgbuild).map_err(cmd_err) {
+                error!("[{}] Skipping build, failed to patch: {}", name, e);
+                continue;
+            }
+            if let Err(e) = builder.build_pkg(&conf, pkg).map_err(cmd_err) {
+                error!("[{}] Skipping build, failed to build: {}", name, e);
+                continue;
+            }
+            if let Err(e) = db::add(&conf, &pkgbuild).map_err(cmd_err) {
+                error!(
+                    "[{}] Skipping build, failed to insert in the database: {}",
+                    name, e
+                );
+                continue;
+            }
         }
         Ok(())
     }

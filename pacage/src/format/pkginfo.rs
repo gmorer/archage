@@ -46,6 +46,7 @@ pub enum PkgInfoError {
 }
 
 // Look like we only actually need:  ensure $pkgname and $pkgver variables were found
+#[derive(Debug)]
 pub struct PkgInfo {
     pub pkgname: String,
     // the pkgver there is actualy [${epoch}:]${pkgver}[-${pkgrel}] from .SRCINFO
