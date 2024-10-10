@@ -150,6 +150,7 @@ impl Builder {
         )?;
         let src_path = conf.pkg_src(name);
         if src_path.exists() {
+            println!("removing {:?}", conf.pkg_src(name));
             fs::remove_dir_all(conf.pkg_src(name))?;
         }
         info!("[{}] downloading the sources...", name);

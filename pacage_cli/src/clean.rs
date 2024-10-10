@@ -19,7 +19,7 @@ pub enum What {
     Repo,
     /// Clear all the packages sources files
     Srcs,
-    /// Clear all pakaghes logs
+    /// Clear all packages logs
     Logs,
 
     All,

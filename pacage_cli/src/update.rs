@@ -55,18 +55,20 @@ impl Update {
         let name = name.to_string();
         conf.ensure_pkg(&name);
         let pkg = conf.get(name);
+        println!("pkg: {:?}", pkg);
         let builder = builder::Builder::new(&conf).map_err(cmd_err)?;
         builder
             .download_src(&conf, &pkg.name, pkg.makepkg.as_ref())
             .map_err(cmd_err)?;
-        for pkgbuild in pkgbuilds {
+        for pkgbuild in &pkgbuilds {
             if pkgbuild.src == false {
                 continue;
             }
             patch(&conf, &pkgbuild).map_err(cmd_err)?;
             builder.build_pkg(&conf, pkg).map_err(cmd_err)?;
-            db::add(&conf, &pkgbuild).map_err(cmd_err)?;
+            println!("Adding: {:?}", pkgbuild);
         }
+        db::add(&conf, &(pkgbuilds.into_iter().collect::<Vec<SrcInfo>>())).map_err(cmd_err)?;
         Ok(())
     }
 
@@ -105,36 +107,39 @@ impl Update {
             })
         }
         let builder = builder::Builder::new(&conf).map_err(cmd_err)?;
-        for pkgbuild in pkgbuilds {
-            if pkgbuild.src == false {
-                continue;
-            }
-            let name = &pkgbuild.name;
-            conf.ensure_pkg(name);
-            let pkg = conf.get(name.clone());
-            let makepkg = pkg.makepkg.as_ref();
-            if let Err(e) = builder.download_src(&conf, name, makepkg).map_err(cmd_err) {
-                error!(
-                    "[{}] Skipping build, failed to download sources: {}",
-                    name, e
-                );
-                continue;
-            }
-            if let Err(e) = patch(&conf, &pkgbuild).map_err(cmd_err) {
-                error!("[{}] Skipping build, failed to patch: {}", name, e);
-                continue;
-            }
-            if let Err(e) = builder.build_pkg(&conf, pkg).map_err(cmd_err) {
-                error!("[{}] Skipping build, failed to build: {}", name, e);
-                continue;
-            }
-            if let Err(e) = db::add(&conf, &pkgbuild).map_err(cmd_err) {
-                error!(
-                    "[{}] Skipping build, failed to insert in the database: {}",
-                    name, e
-                );
-                continue;
-            }
+        // Filter or new Vec ? or just remove from vec ?
+        let pkgbuilds = pkgbuilds
+            .into_iter()
+            .filter(|pkgbuild| {
+                if pkgbuild.src == false {
+                    return false;
+                }
+                let name = &pkgbuild.name;
+                conf.ensure_pkg(name);
+                let pkg = conf.get(name.clone());
+                let makepkg = pkg.makepkg.as_ref();
+                if let Err(e) = builder.download_src(&conf, name, makepkg).map_err(cmd_err) {
+                    error!(
+                        "[{}] Skipping build, failed to download sources: {}",
+                        name, e
+                    );
+                    return false;
+                }
+                if let Err(e) = patch(&conf, &pkgbuild).map_err(cmd_err) {
+                    error!("[{}] Skipping build, failed to patch: {}", name, e);
+                    return false;
+                }
+                println!("building {:?}", pkg);
+                if let Err(e) = builder.build_pkg(&conf, pkg).map_err(cmd_err) {
+                    error!("[{}] Skipping build, failed to build: {}", name, e);
+                    return false;
+                }
+                println!("Adding: {:?}", pkgbuild);
+                true
+            })
+            .collect::<Vec<SrcInfo>>();
+        if let Err(e) = db::add(&conf, &pkgbuilds).map_err(cmd_err) {
+            error!("failed to insert in the database: {}", e);
         }
         Ok(())
     }

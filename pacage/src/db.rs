@@ -71,10 +71,10 @@ pub enum RepoError {
 
 #[derive(Debug, Error)]
 pub enum AddError {
-    #[error("Could not find {0} package")]
-    PkgNotFound(String),
+    #[error("Failed to parse all the packages")]
+    Nothing,
     #[error("Failed to lock database")]
-    DbLockError(),
+    DbLockError,
     #[error("System error: {0}")]
     Io(#[from] std::io::Error),
     #[error("Parsing error: {0}")]
@@ -194,7 +194,7 @@ fn parse_path_name(path: &Path) -> Result<(String /* pkgname */, Version), Strin
 fn copy_old_db<T>(
     out_tar: &mut tar::Builder<T>,
     repo_path: &Path,
-    pkginfo: &PkgInfo,
+    adding: &[AddEntry],
     to_remove: &mut Vec<String>,
 ) -> Result<(), AddError>
 where
@@ -202,11 +202,11 @@ where
 {
     let repo = File::open(&repo_path).inspect_err(|e| error!("Failed to open the db: {}", e))?;
     let mut archive = Archive::new(GzDecoder::new(&repo));
-    let entries = archive
+    let dbentries = archive
         .entries()
         .inspect_err(|e| error!("failed to read db: {}", e))?;
-    for entry in entries {
-        if let Ok(mut entry) = entry {
+    for dbentry in dbentries {
+        if let Ok(mut entry) = dbentry {
             if let Ok(path) = entry.path() {
                 if path
                     .file_name()
@@ -228,28 +228,38 @@ where
                             continue;
                         }
                     };
-                    if ename != pkginfo.pkgname {
-                        let epath = PathBuf::from(&*path);
-                        let mut header = entry.header().clone();
-                        let reader = BufReader::new(entry);
-                        out_tar
-                            .append_data(&mut header, epath, reader)
-                            .inspect_err(|e| {
-                                error!("failed to copy db entry to output db: {}", e)
-                            })?;
-                        continue;
-                    }
-                    if eversion > pkginfo.version {
-                        // warning "$(gettext "A newer version for '%s' is already present in database")" "$pkgname"
-                        // if (( PREVENT_DOWNGRADE )); then
-                        // 	return 0
-                        warn!("[{}] A newer version({}) is already present in database, trying to install: {}", ename, eversion, pkginfo.version);
-                        unimplemented!();
-                    } else if eversion < pkginfo.version {
-                        let edesc = DbDesc::new(BufReader::new(&mut entry)).map_err(|e| {
-                            AddError::Parsing(format!("Failed to parse old entry desc: {}", e))
-                        })?;
-                        to_remove.push(edesc.filename);
+                    match adding
+                        .iter()
+                        .find(|(_, pkginfo, _, _, _)| pkginfo.pkgname == ename)
+                    {
+                        Some((_, pkginfo, _, _, _)) => {
+                            if eversion > pkginfo.version {
+                                // warning "$(gettext "A newer version for '%s' is already present in database")" "$pkgname"
+                                // if (( PREVENT_DOWNGRADE )); then
+                                // 	return 0
+                                warn!("[{}] A newer version({}) is already present in database, trying to install: {}", ename, eversion, pkginfo.version);
+                                unimplemented!();
+                            } else if eversion < pkginfo.version {
+                                let edesc =
+                                    DbDesc::new(BufReader::new(&mut entry)).map_err(|e| {
+                                        AddError::Parsing(format!(
+                                            "Failed to parse old entry desc: {}",
+                                            e
+                                        ))
+                                    })?;
+                                to_remove.push(edesc.filename);
+                            }
+                        }
+                        None => {
+                            let epath = PathBuf::from(&*path);
+                            let mut header = entry.header().clone();
+                            let reader = BufReader::new(entry);
+                            out_tar
+                                .append_data(&mut header, epath, reader)
+                                .inspect_err(|e| {
+                                    error!("failed to copy db entry to output db: {}", e)
+                                })?;
+                        }
                     }
                 }
             }
@@ -262,7 +272,8 @@ where
 fn copy_old_files<T>(
     out_tar: &mut tar::Builder<T>,
     files_path: &Path,
-    pkgname: &String,
+    // pkgname: &String,
+    adding: &[AddEntry],
 ) -> Result<(), io::Error>
 where
     T: Write,
@@ -294,7 +305,11 @@ where
                         continue;
                     }
                 };
-                if &ename != pkgname {
+                if adding
+                    .iter()
+                    .find(|(_, pkginfo, _, _, _)| pkginfo.pkgname == ename)
+                    .is_none()
+                {
                     let epath = PathBuf::from(&*path);
                     let mut header = entry.header().clone();
                     let reader = BufReader::new(entry);
@@ -303,7 +318,6 @@ where
                         .inspect_err(|e| {
                             error!("failed to copy files db entry to output files db: {}", e)
                         })?;
-                    continue;
                 }
             }
         }
@@ -311,33 +325,57 @@ where
     Ok(())
 }
 
+type AddEntry = (
+    String, /* pkgfile*/
+    PkgInfo,
+    u64,    /* csize */
+    String, /* sha256 */
+    BTreeSet<String>,
+);
+
 /// Basicly repo-add reimplementation
-pub fn add(conf: &Conf, pkg: &SrcInfo) -> Result<(), AddError> {
+pub fn add(conf: &Conf, pkgs: &[SrcInfo]) -> Result<(), AddError> {
     // TODO: take in multiple packages
-    let pkgfile = conf
-        .server_dir
-        .join("repo")
-        .join(format!(
-            "{}-{}-{}.pkg.tar.zst",
-            pkg.name,
-            pkg.get_version(),
-            pkg.arch
-        ))
-        .to_string_lossy()
-        .to_string();
-    let (pkginfo, csize, sha256, files) = read_package(&pkgfile)?;
+    let mut pkgfiles: Vec<AddEntry> = Vec::new();
     let mut to_remove = vec![];
-    if &pkginfo.version != pkg.get_version() {
-        Err(AddError::Parsing(format!(
-            "Version mismatch from created package({}) to request package({})",
-            pkginfo.version,
-            pkg.get_version()
-        )))?;
+
+    for pkg in pkgs {
+        let pkgfile = conf
+            .server_dir
+            .join("repo")
+            .join(format!(
+                "{}-{}-{}.pkg.tar.zst",
+                pkg.name,
+                pkg.get_version(),
+                pkg.arch
+            ))
+            .to_string_lossy()
+            .to_string();
+        let (pkginfo, csize, sha256, files) = match read_package(&pkgfile) {
+            Ok(v) => v,
+            Err(e) => {
+                error!("[{}] {}", pkg.name, e);
+                continue;
+            }
+        };
+        if &pkginfo.version != pkg.get_version() {
+            error!(
+                "[{}] Version mismatch from created package({}) to request package({})",
+                pkg.name,
+                pkginfo.version,
+                pkg.get_version()
+            );
+            continue;
+        }
+        pkgfiles.push((pkgfile, pkginfo, csize, sha256, files));
+    }
+    if pkgfiles.len() == 0 {
+        return Err(AddError::Nothing);
     }
 
     let repo_lock = DirLock::new(conf.get_repo_db().with_extension("lock")).map_err(|e| {
         error!("Failed to lock db: {}", e);
-        AddError::DbLockError()
+        AddError::DbLockError
     })?;
 
     // Create 2 new temporary dbs
@@ -362,43 +400,44 @@ pub fn add(conf: &Conf, pkg: &SrcInfo) -> Result<(), AddError> {
     let repo_path = conf.get_repo_db();
     let files_path = conf.get_repo_files_db();
     if repo_path.exists() {
-        copy_old_db(&mut tar_new_db, &repo_path, &pkginfo, &mut to_remove)?;
+        copy_old_db(&mut tar_new_db, &repo_path, &pkgfiles, &mut to_remove)?;
     }
     if files_path.exists() {
-        copy_old_files(&mut tar_new_files, &files_path, &pkginfo.pkgname)?;
+        copy_old_files(&mut tar_new_files, &files_path, &pkgfiles)?;
     }
 
-    // Write desc in both db and files
-    let pgpsig = if PathBuf::from(format!("{}.sig", pkgfile)).exists() {
-        // compute base64'd PGP signature
-        unimplemented!()
-    } else {
-        None
-    };
-    let version = pkginfo.version.to_string();
-    let desc_path = format!("{}-{}/desc", pkginfo.pkgname, &version);
-    let desc = pkginfo.to_desc(pkgfile, csize, sha256, pgpsig);
-    let mut desc_raw = vec![];
-    desc.write(&mut desc_raw)
-        .inspect_err(|e| error!("Fail to create new desc file: {}", e))?;
-    let mut desc_header = tar::Header::new_gnu();
-    desc_header.set_size(desc_raw.len() as u64);
-    tar_new_db
-        .append_data(&mut desc_header, &desc_path, desc_raw.as_slice())
-        .inspect_err(|e| error!("failed to copy db entry to output db: {}", e))?;
-    tar_new_files
-        .append_data(&mut desc_header, desc_path, desc_raw.as_slice())
-        .inspect_err(|e| error!("failed to copy db entry to output files: {}", e))?;
+    for (pkgfile, pkginfo, csize, sha256, files) in pkgfiles {
+        // Write desc in both db and files
+        let pgpsig = if PathBuf::from(format!("{}.sig", pkgfile)).exists() {
+            // compute base64'd PGP signature
+            unimplemented!()
+        } else {
+            None
+        };
+        let version = pkginfo.version.to_string();
+        let desc_path = format!("{}-{}/desc", pkginfo.pkgname, &version);
+        let desc = pkginfo.to_desc(pkgfile, csize, sha256, pgpsig);
+        let mut desc_raw = vec![];
+        desc.write(&mut desc_raw)
+            .inspect_err(|e| error!("Fail to create new desc file: {}", e))?;
+        let mut desc_header = tar::Header::new_gnu();
+        desc_header.set_size(desc_raw.len() as u64);
+        tar_new_db
+            .append_data(&mut desc_header, &desc_path, desc_raw.as_slice())
+            .inspect_err(|e| error!("failed to copy db entry to output db: {}", e))?;
+        tar_new_files
+            .append_data(&mut desc_header, desc_path, desc_raw.as_slice())
+            .inspect_err(|e| error!("failed to copy db entry to output files: {}", e))?;
 
-    // Write files in files
-    let new_files_path = format!("{}-{}/files", pkginfo.pkgname, version);
-    let files_content = generate_files_file(files);
-    let mut files_header = tar::Header::new_gnu();
-    files_header.set_size(files_content.len() as u64);
-    tar_new_files
-        .append_data(&mut files_header, &new_files_path, files_content.as_slice())
-        .inspect_err(|e| error!("failed to copy db entry to output files: {}", e))?;
-
+        // Write files in files
+        let new_files_path = format!("{}-{}/files", pkginfo.pkgname, version);
+        let files_content = generate_files_file(files);
+        let mut files_header = tar::Header::new_gnu();
+        files_header.set_size(files_content.len() as u64);
+        tar_new_files
+            .append_data(&mut files_header, &new_files_path, files_content.as_slice())
+            .inspect_err(|e| error!("failed to copy db entry to output files: {}", e))?;
+    }
     // Write both to disc
     let db_out = tar_new_db
         .into_inner()
@@ -467,14 +506,24 @@ mod tests {
         let a = Conf::_test_builder().server_dir("../tmp".into()).call();
         assert!(matches!(list(&a).unwrap_err(), RepoError::NoRepo));
         let pkginfo1 = SrcInfo::new(&a, "fake_pkg1").unwrap();
-        add(&a, &pkginfo1).unwrap();
+        add(&a, &[pkginfo1]).unwrap();
         let pkg_list = list(&a).unwrap();
         assert_eq!(pkg_list.len(), 1);
         let entry = pkg_list.get(0).unwrap();
         assert_eq!(entry.name, "fake_pkg1", "Checking entry name");
         assert_eq!(entry.version, "2024.04.07-2");
         let pkginfo2 = SrcInfo::new(&a, "fake_pkg2").unwrap();
-        add(&a, &pkginfo2).unwrap();
+        add(&a, &[pkginfo2]).unwrap();
+        let pkg_list = list(&a).unwrap();
+        assert_eq!(pkg_list.len(), 2);
+    }
+    #[test]
+    fn add_2_items_to_db() {
+        let a = Conf::_test_builder().server_dir("../tmp".into()).call();
+        assert!(matches!(list(&a).unwrap_err(), RepoError::NoRepo));
+        let pkginfo1 = SrcInfo::new(&a, "fake_pkg1").unwrap();
+        let pkginfo2 = SrcInfo::new(&a, "fake_pkg2").unwrap();
+        add(&a, &[pkginfo1, pkginfo2]).unwrap();
         let pkg_list = list(&a).unwrap();
         assert_eq!(pkg_list.len(), 2);
     }
