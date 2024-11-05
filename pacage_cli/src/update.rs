@@ -1,9 +1,12 @@
 use std::collections::{BTreeSet, HashSet};
 
 use clap::Args;
-use log::error;
+use crossbeam_channel::{unbounded, Receiver};
+use log::{error, info};
+use pacage::conf::Package;
 use pacage::format::SrcInfo;
 
+use crate::util::dl_and_build;
 use crate::{cmd_err, CliCmd};
 use pacage::builder;
 use pacage::patch::patch;
@@ -38,109 +41,51 @@ impl CliCmd for Update {
 
 impl Update {
     fn update_one(&self, mut conf: Conf, name: &str) -> Result<(), i32> {
-        let pkgbuilds = if !self.no_fetch {
-            download_pkg(&mut conf, &name, false).map_err(cmd_err)?
-        } else {
-            let mut res = HashSet::new();
-            res.insert(SrcInfo::new(&conf, name).map_err(|e| {
-                error!("Failed to parse .SRCINFO: {}", e);
-                2
-            })?);
-            res
-        };
-        if !builder::should_build(&pkgbuilds) {
-            println!("Nothing to do :)");
-            return Ok(());
-        }
-        let name = name.to_string();
-        conf.ensure_pkg(&name);
-        let pkg = conf.get(name);
-        println!("pkg: {:?}", pkg);
-        let builder = builder::Builder::new(&conf).map_err(cmd_err)?;
-        builder
-            .download_src(&conf, &pkg.name, pkg.makepkg.as_ref())
-            .map_err(cmd_err)?;
-        for pkgbuild in &pkgbuilds {
-            if pkgbuild.src == false {
-                continue;
+        let (pkgbuildssender, pkgbuilds) = unbounded::<(SrcInfo, Package)>();
+        let pkg = conf.resolve(name);
+        if self.no_fetch {
+            match SrcInfo::new(&conf.pkgs_dir(), &pkg, false) {
+                Ok(srcinfo) => {
+                    conf.ensure_pkg(pkg.as_str());
+                    let pkg = conf.get(pkg.as_str()).clone();
+                    pkgbuildssender.send((srcinfo, pkg)).unwrap();
+                }
+                Err(e) => error!("[{}] Fail to read .SRCINFO: {}", pkg, e),
             }
-            patch(&conf, &pkgbuild).map_err(cmd_err)?;
-            builder.build_pkg(&conf, pkg).map_err(cmd_err)?;
-            println!("Adding: {:?}", pkgbuild);
+            drop(pkgbuildssender);
+        } else {
+            download_pkg(&mut conf, pkg.as_str(), false, pkgbuildssender).map_err(cmd_err)?;
         }
-        db::add(&conf, &(pkgbuilds.into_iter().collect::<Vec<SrcInfo>>())).map_err(cmd_err)?;
+        let num = dl_and_build(&conf, pkgbuilds, true).map_err(cmd_err)?;
+        info!("Updated {} packages(s)", num);
         Ok(())
     }
 
     fn update_all(&self, mut conf: Conf) -> Result<(), i32> {
         // TODO: get it from install db instead
+        let (pkgbuildssender, pkgbuilds) = unbounded::<(SrcInfo, Package)>();
         let mut to_dl = BTreeSet::new();
         for k in &conf.packages {
             to_dl.insert(k.name.clone());
         }
-        let mut pkgbuilds = if self.no_fetch {
-            let mut res = HashSet::new();
+        if self.no_fetch {
             for pkg in to_dl {
-                match SrcInfo::new(&conf, &pkg) {
-                    Ok(pkg) => {
-                        res.insert(pkg);
+                let pkg = conf.resolve(pkg.as_str());
+                match SrcInfo::new(&conf.pkgs_dir(), &pkg, false) {
+                    Ok(srcinfo) => {
+                        conf.ensure_pkg(pkg.as_str());
+                        let pkg = conf.get(pkg.as_str()).clone();
+                        pkgbuildssender.send((srcinfo, pkg)).unwrap();
                     }
                     Err(e) => error!("[{}] Fail to read .SRCINFO: {}", pkg, e),
                 }
             }
-            res
+            drop(pkgbuildssender);
         } else {
-            download_all(&mut conf, to_dl, true).map_err(cmd_err)?
+            download_all(&mut conf, to_dl, true, pkgbuildssender).map_err(cmd_err)?;
         };
-
-        // Check if package is already there
-        if let Ok(dbpkgs) = db::list(&conf) {
-            pkgbuilds.retain(|wanted_pkg| {
-                for db_package in &dbpkgs {
-                    if wanted_pkg.name == db_package.name
-                        && wanted_pkg.get_version() == db_package.get_version()
-                    {
-                        return false;
-                    }
-                }
-                true
-            })
-        }
-        let builder = builder::Builder::new(&conf).map_err(cmd_err)?;
-        // Filter or new Vec ? or just remove from vec ?
-        let pkgbuilds = pkgbuilds
-            .into_iter()
-            .filter(|pkgbuild| {
-                if pkgbuild.src == false {
-                    return false;
-                }
-                let name = &pkgbuild.name;
-                conf.ensure_pkg(name);
-                let pkg = conf.get(name.clone());
-                let makepkg = pkg.makepkg.as_ref();
-                if let Err(e) = builder.download_src(&conf, name, makepkg).map_err(cmd_err) {
-                    error!(
-                        "[{}] Skipping build, failed to download sources: {}",
-                        name, e
-                    );
-                    return false;
-                }
-                if let Err(e) = patch(&conf, &pkgbuild).map_err(cmd_err) {
-                    error!("[{}] Skipping build, failed to patch: {}", name, e);
-                    return false;
-                }
-                println!("building {:?}", pkg);
-                if let Err(e) = builder.build_pkg(&conf, pkg).map_err(cmd_err) {
-                    error!("[{}] Skipping build, failed to build: {}", name, e);
-                    return false;
-                }
-                println!("Adding: {:?}", pkgbuild);
-                true
-            })
-            .collect::<Vec<SrcInfo>>();
-        if let Err(e) = db::add(&conf, &pkgbuilds).map_err(cmd_err) {
-            error!("failed to insert in the database: {}", e);
-        }
+        let num = dl_and_build(&conf, pkgbuilds, true).map_err(cmd_err)?;
+        info!("Updated {} packages(s)", num);
         Ok(())
     }
 }

@@ -11,11 +11,16 @@ set -x
 export BUILDDIR=/build/srcs
 export PATH=$PATH:/usr/bin/vendor_perl
 
+
+action=$1
+pkg=$2
+# set -- "${@:2}" 
+
 function cleanup() {
   # echo "Cleaning up build directory"
   rm -rf /build/srcs/*/pkg
   # chown -R root:root . $CCACHE_DIR /build/srcs
-  chown -R root:root /build
+  chown -R root:root /build/srcs/$pkg /build/pkgs/$pkg
 }
 trap cleanup EXIT ERR
 
@@ -28,9 +33,10 @@ pacman_install() {
 
 init_system() {
 # Adding an builder user
-  if ! id builder; then
-    yes | pacman -Syu --cachedir /build/cache/pacman --noconfirm git ccache mold glibc-locales  $@
-    useradd -U -M builder
+  if ! command -v ccache ; then 
+  # if ! id builder; then
+    yes | pacman -Syu --cachedir /build/cache/pacman --noconfirm git ccache mold glibc-locales
+    # useradd -U -M builder
 
     # Local stuff
     localedef -c -f UTF-8 -i en_US en_US.UTF-8
@@ -45,58 +51,82 @@ init_system() {
 pacage_build() (
   env
   local pkg=$1
+  local usr=$pkg"_builder"
+  local makepkg_conf="/build/srcs/makepkg_${pkg}.conf"
+  if [ ! -d /build/srcs/$pkg ] ; then
+    echo "$pkg source dir is missing";
+    false
+  fi
+
+  if ! id $usr ; then
+    useradd -U -M $usr
+  fi
   source PKGBUILD
+
   # Check if variable is defined
   pacman_install ${depends[@]} ${makedepends[@]} ${checkdepends[@]}
-  chown -R builder:builder . $CCACHE_DIR /build/srcs
+
+  git --version
 
   local pkgdest=$(mktemp -d)
-  chown -R builder:builder $pkgdest
-  PKGDEST=$pkgdest runuser -u builder -m -- makepkg -f --skippgpcheck --skipinteg --config /build/makepkg.conf --noextract
+  chown -R ${usr}:${usr} . $pkgdest $makepkg_conf $CCACHE_DIR /build/srcs/$pkg
+  PKGDEST=$pkgdest runuser -u $usr -m -- makepkg -f --skippgpcheck --skipinteg --config $makepkg_conf --noextract
   mv $pkgdest/* /build/repo
-  runuser -u builder -- makepkg --printsrcinfo > .SRCINFO
+  runuser -u $usr -- makepkg --printsrcinfo > .SRCINFO
   ccache -s
 )
 
 pacage_get() (
   local pkg=$1
+  local usr=$pkg"_builder"
+  local makepkg_conf="/build/srcs/makepkg_${pkg}.conf"
+  if ! id $usr ; then
+    useradd -U -M $usr
+  fi
+  pwd
+  ls 
   source PKGBUILD
-  pacman_install ${depends[@]} ${makedepends[@]} ${checkdepends[@]}
-  chown -R builder:builder . $CCACHE_DIR /build/srcs
+
+  # rm -rf /build/srcs/$pkg
+  # mkdir /build/srcs/$pkg
+  # chown -R ${usr}:${usr} . $pkgdest $makepkg_conf $CCACHE_DIR /build/srcs/$pkg
+  chown -R ${usr}:${usr} . $makepkg_conf
+  chmod o+wx /build/srcs
 
   # To test makepkg --allsource
 
   # we remove old sources
-  rm -rf /build/srcs/$pkg
-  runuser -u builder -m -- makepkg -f -c --nodeps --nocheck --skippgpcheck --skipinteg --config /build/makepkg.conf --nobuild
+  # rm -rf /build/srcs/$pkg
+  ls -l /build
+  ls -l /build/srcs
+  ls -ld /build/srcs
+  runuser -u $usr -m -- mkdir /build/srcs/$pkg
+  runuser -u $usr -m -- mkdir /build/srcs/$pkg/src
+  runuser -u $usr -m -- chmod a-s /build/srcs/$pkg
+  ls -ld /build/srcs/$pkg
+  ls -ld /build/srcs/$pkg/src
+  # runuser -u $usr -m -- bash -x makepkg -f -c --nodeps --nocheck --skippgpcheck --skipinteg --config $makepkg_conf --nobuild
+  runuser -u $usr -m -- makepkg -f -c --nodeps --nocheck --skippgpcheck --skipinteg --config $makepkg_conf --nobuild
   # maybe it should print some info in the src dir
 )
 
-action=$1
-set -- "${@:2}" 
-pkgs=$@
-
 # we remove [0] which is the action
 echo action $action
-echo pkgs $pkgs
+echo pkg $pkg
 
 case $action in
   "start")
     init_system
   ;;
   "get")
-    for pkg in "${pkgs[@]}"; do
-      pushd pkgs/$pkg
-      pacage_get $pkg
-      popd
-    done
+    pushd pkgs/$pkg
+    pacage_get $pkg
+    popd
   ;;
   "build")
-    for pkg in "${pkgs[@]}"; do
-      pushd pkgs/$pkg
-      pacage_build $pkg
-      popd
-    done
+    pushd pkgs/$pkg
+    pacage_build $pkg
+    popd
   ;;
   *)
     "Invalid action: $action"

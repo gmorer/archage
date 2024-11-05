@@ -1,6 +1,7 @@
 use super::ParsingError;
+use crate::cmd::ExecError;
 use crate::cmd::{command, CmdError, NOENV};
-use crate::conf::Conf;
+use crate::conf::PkgsDir;
 use crate::utils::version::Version;
 use log::warn;
 use std::borrow::Borrow;
@@ -64,6 +65,9 @@ pkgname = bash
 pub enum SrcInfoError {
     #[error("System command error: {0}")]
     Cmd(#[from] CmdError),
+
+    #[error("Wrong exit status: {0}")]
+    ExecError(ExecError),
 
     #[error("Invalid data: {0}")]
     InvalidData(String),
@@ -145,6 +149,10 @@ impl SrcInfo {
         match (&name, &version, &arch) {
             (Some(name), Some(version), Some(arch)) => {
                 let version = version.to_string();
+                // println!(
+                //     "[{}] V: {}, R: {:?}, E: {:?}",
+                //     name, version, release, epoch
+                // );
                 return Ok(Self {
                     _version: Version::new(&version, release.as_deref(), epoch),
                     name: name.to_string(),
@@ -166,7 +174,7 @@ impl SrcInfo {
     // Not the best way :/
     // TODO: dont do that
     // fn can_build(conf: &Conf, pkg_name: &str) -> Result<bool, ParsingError> {
-    //     let path = conf.server_dir.join("pkgs").join(pkg_name).join("PKGBUILD");
+    //     let path = pkgs_dir.join(pkg_name).join("PKGBUILD");
     //     let file = fs::File::open(path).map_err(|e| ParsingError::PkgBuild(e.to_string()))?;
     //     for line in BufReader::new(file).lines() {
     //         if let Ok(line) = line {
@@ -178,13 +186,18 @@ impl SrcInfo {
     //     return Ok(false);
     // }
 
-    pub fn new(conf: &Conf, pkg_name: &str) -> Result<Self, ParsingError> {
-        let path = conf.server_dir.join("pkgs").join(pkg_name).join(".SRCINFO");
+    pub fn new(
+        pkgs_dir: &PkgsDir,
+        pkg_name: &str,
+        force_recreate: bool,
+    ) -> Result<Self, ParsingError> {
+        let path = pkgs_dir.path().join(pkg_name).join(".SRCINFO");
         // let build = Self::can_build(conf, pkg_name)?;
-        if !path.exists() {
-            let pkgs_dir = conf.server_dir.join("pkgs").join(pkg_name);
-            let (status, out, _) =
-                command(&["makepkg", "--printsrcinfo"], &pkgs_dir, NOENV).unwrap();
+        if force_recreate || !path.exists() {
+            // println!("[{}] .srcinfo doesnt exist, creating it...", pkg_name);
+            let pkgs_dir = pkgs_dir.pkg(pkg_name);
+            let (status, out, _) = command(&["makepkg", "--printsrcinfo"], &pkgs_dir, NOENV)
+                .map_err(|e| SrcInfoError::ExecError(e))?;
             if !status.success() {
                 return Err(SrcInfoError::Cmd(CmdError::from_output(out)).into());
             }
@@ -194,6 +207,7 @@ impl SrcInfo {
             }
             Self::parse(content.lines())
         } else {
+            // println!("[{}] .srcinfo exist, using it...", pkg_name);
             let file = fs::File::open(path).map_err(|e| SrcInfoError::Io(e))?;
             Self::parse(BufReader::new(file).lines().filter_map(|l| match l {
                 Ok(l) => Some(l),

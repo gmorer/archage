@@ -17,6 +17,7 @@ ruzstd = "0.7.2"
 tar = "0.4"
 sha2 = "0.10"
 base16ct = { version = "0.2", features = ["alloc"] }
+crossbeam-channel = "0.5.13"
 
 [dev-dependencies]
 fake = "2.9.2"

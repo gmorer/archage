@@ -14,7 +14,7 @@ pub struct Build {
 
 impl CliCmd for Build {
     fn execute(&self, mut conf: crate::Conf) -> Result<(), i32> {
-        let pkg_build = SrcInfo::new(&conf, &self.name).map_err(cmd_err)?;
+        let pkg_build = SrcInfo::new(&conf.pkgs_dir(), &self.name, false).map_err(cmd_err)?;
         if !conf.pkg_src(&self.name).exists() {
             Err(cmd_err(format!(
                 "Missing packages sources, run 'pacage download {}' to get them",
@@ -24,7 +24,7 @@ impl CliCmd for Build {
         let builder = builder::Builder::new(&conf).map_err(cmd_err)?;
         patch(&conf, &pkg_build).map_err(cmd_err)?;
         conf.ensure_pkg(&self.name);
-        let pkg = conf.get(self.name.clone());
+        let pkg = conf.get(self.name.as_str());
         builder
             .build_pkg(&conf, pkg)
             // .build_pkg(conf, &self.name, makepkg)

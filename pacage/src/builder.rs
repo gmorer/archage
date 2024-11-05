@@ -1,5 +1,7 @@
 use crate::conf::{Makepkg, Package};
+use crossbeam_channel::{Receiver, Sender};
 use log::{error, info};
+use std::cmp::max;
 use std::collections::HashSet;
 use std::fmt::Display;
 use std::fs::{self};
@@ -10,7 +12,7 @@ use thiserror::Error;
 
 use crate::cmd::{command, out_to_file, write_last_lines, CmdError, ExecError, NOENV};
 use crate::conf::{Conf, BUILD_SCRIPT_FILE};
-use crate::format::SrcInfo;
+use crate::format::{self, SrcInfo};
 
 const CONTAINER_NAME: &str = "pacage_builder";
 
@@ -49,6 +51,8 @@ pub enum BuilderError {
     CmdError(#[from] CmdError),
     #[error("IO error: {0}")]
     IOError(#[from] io::Error),
+    #[error("Parsing error: {0}")]
+    Parsing(#[from] format::ParsingError),
     // #[error("Patch error: {0}")]
     // PatchError(#[from] PatchError),
 }
@@ -138,21 +142,64 @@ impl Builder {
         })
     }
 
+    pub fn download_srcs(
+        &self,
+        conf: &Conf,
+        pkgs: Receiver<(SrcInfo, Package)>,
+        ret: Sender<(SrcInfo, Package)>,
+    ) -> Result<(), BuilderError> {
+        let max_par_dl = conf.max_par_dl;
+        std::thread::scope(|s| {
+            let pkgs = &pkgs;
+            for _ in 0..max_par_dl {
+                // for _ in 0..1 {
+                let ret = ret.clone();
+                s.spawn(move || {
+                    while let Ok((srcinfo, pkg)) = pkgs.recv() {
+                        match self.download_src(conf, srcinfo, pkg.makepkg.as_ref()) {
+                            Ok(srcinfo) => {
+                                ret.send((srcinfo, pkg)).ok();
+                            }
+                            Err(e) => {
+                                error!("[{}] Failed to download sources: {}", pkg.name, e)
+                            }
+                        }
+                    }
+                });
+            }
+        });
+        Ok(())
+    }
     pub fn download_src(
         &self,
         conf: &Conf,
-        name: &str,
+        srcinfo: SrcInfo,
         makepkgconf: Option<&Makepkg>,
-    ) -> Result<(), BuilderError> {
+    ) -> Result<SrcInfo, BuilderError> {
+        let name = srcinfo.name.as_str();
+        let makepkgconf_path = Path::new(&conf.server_dir)
+            .join("srcs")
+            .join(format!("makepkg_{}.conf", name));
         fs::write(
-            Path::new(&conf.server_dir).join("makepkg.conf"),
+            &makepkgconf_path,
             Makepkg::get_conf_file(&conf, makepkgconf, name)?,
         )?;
         let src_path = conf.pkg_src(name);
         if src_path.exists() {
-            println!("removing {:?}", conf.pkg_src(name));
             fs::remove_dir_all(conf.pkg_src(name))?;
         }
+        let pkgsdir = conf.pkgs_dir();
+        let pkgbuild = pkgsdir.pkg(&srcinfo.name).join("PKGBUILD");
+        let makepkg_lastedit = if let Ok(metadata) = pkgbuild.metadata() {
+            match (metadata.created(), metadata.modified()) {
+                (Ok(t1), Ok(t2)) => Some(max(t1, t2)),
+                (Ok(t), Err(_)) => Some(t),
+                (Err(_), Ok(t)) => Some(t),
+                (Err(_), Err(_)) => None,
+            }
+        } else {
+            None
+        };
         info!("[{}] downloading the sources...", name);
         let (status, out, _) = command(
             &[
@@ -170,6 +217,7 @@ impl Builder {
             &conf.server_dir,
             NOENV,
         )?;
+        fs::remove_file(makepkgconf_path).ok();
         match out_to_file(conf, name, "get", &out, status.success()) {
             Ok(Some(file)) => info!("[{}] Get logs writed to {}", name, file),
             Ok(None) => {}
@@ -181,7 +229,19 @@ impl Builder {
             Err(CmdError::from_output(out))?
         }
         info!("[{}] sources downloaded", name);
-        Ok(())
+        if let Some(makepkg_lastedit) = makepkg_lastedit {
+            if pkgbuild
+                .metadata()
+                .map(|m| m.modified()) // Result::flatten
+                .is_ok_and(|t| t.is_ok_and(|new| new > makepkg_lastedit))
+            {
+                Ok(SrcInfo::new(&pkgsdir, &srcinfo.name, true)?)
+            } else {
+                Ok(srcinfo)
+            }
+        } else {
+            Ok(srcinfo)
+        }
     }
 
     pub fn build_pkg(
@@ -193,8 +253,11 @@ impl Builder {
         let name = &pkg.name;
         info!("[{}] Building/packaging the sources...", name);
         let makepkgconf = pkg.makepkg.as_ref();
+        let makepkgconf_path = Path::new(&conf.server_dir)
+            .join("srcs")
+            .join(format!("makepkg_{}.conf", name));
         fs::write(
-            Path::new(&conf.server_dir).join("makepkg.conf"),
+            &makepkgconf_path,
             Makepkg::get_conf_file(conf, makepkgconf, name)?,
         )?;
         let (status, out, elapsed) = command(
@@ -213,6 +276,7 @@ impl Builder {
             &conf.server_dir,
             NOENV,
         )?;
+        fs::remove_file(makepkgconf_path).ok();
         match out_to_file(conf, name, "build", &out, status.success()) {
             Ok(Some(file)) => info!("[{}] Build logs writed to {}", name, file),
             Ok(None) => {}

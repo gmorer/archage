@@ -43,11 +43,12 @@ impl CliCmd for Open {
     fn execute(&self, mut conf: Conf) -> Result<(), i32> {
         let name = self.name.clone();
         conf.ensure_pkg(&name);
-        let pkg = conf.get(name);
+        let pkg = conf.get(name.as_str());
+        let pkgsdir = conf.pkgs_dir();
         let srcinfo = if !conf.pkg_dir(&pkg.name).exists() {
-            fetch_pkg(&conf, pkg).map_err(cmd_err)?
+            fetch_pkg(&pkgsdir, &pkg.name, &pkg.repo).map_err(cmd_err)?
         } else {
-            SrcInfo::new(&conf, &pkg.name).map_err(cmd_err)?
+            SrcInfo::new(&pkgsdir, &pkg.name, false).map_err(cmd_err)?
         };
         if srcinfo.src == false {
             eprintln!("The package doesnt contain sources");
@@ -55,8 +56,8 @@ impl CliCmd for Open {
         }
         // TODO: maybe if orig and patched dir exist we dont download/cleanup and just cd into it
         let builder = Builder::new(&conf).map_err(cmd_err)?;
-        builder
-            .download_src(&conf, &pkg.name, pkg.makepkg.as_ref())
+        let srcinfo = builder
+            .download_src(&conf, srcinfo, pkg.makepkg.as_ref())
             .map_err(cmd_err)?;
         drop(builder);
         let Some(orig) = find_src(&conf, &srcinfo) else {
@@ -91,7 +92,6 @@ impl CliCmd for Open {
                 }
             }
         }
-        println!("patched dir created in {}", new.to_string_lossy());
         Ok(())
     }
 }
@@ -162,7 +162,7 @@ fn get_diff(
     } else {
         get_pwd_pkg(&conf)?
     };
-    let srcinfo = SrcInfo::new(&conf, &name).map_err(cmd_err)?;
+    let srcinfo = SrcInfo::new(&conf.pkgs_dir(), &name, false).map_err(cmd_err)?;
     let Some(mut orig_path) = find_src(&conf, &srcinfo) else {
         eprintln!("Failed to find packages sources for {}", name);
         return Err(2);

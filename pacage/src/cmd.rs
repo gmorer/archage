@@ -116,7 +116,7 @@ fn _command(mut cmd: Command) -> Result<(ExitStatus, Vec<String>, Duration), Exe
                     line_buffer.push_str(&String::from_utf8_lossy(&buff[..n]));
                 }
                 Err(e) => {
-                    error!("error while readig output: {}", e);
+                    error!("error while reading output: {}", e);
                 }
             }
             let mut offset = 0;

@@ -1,9 +1,15 @@
+use crossbeam_channel::Sender;
 use log::{error, info};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::fs;
+use std::fs::{read_to_string, File};
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
+use std::sync::Mutex;
+use std::{fs, io, thread};
 
 use crate::cmd::{command, CmdError, ExecError};
-use crate::conf::Conf;
+use crate::conf::{Conf, PkgsDir};
 use crate::conf::{Package, Repo};
 use crate::format::{ParsingError, SrcInfo};
 use thiserror::Error;
@@ -25,6 +31,9 @@ pub enum DownloadError {
 
     #[error("Parsing error: {0}")]
     Parsing(#[from] ParsingError),
+
+    #[error("Missing PKGBUILD: {0}")]
+    MissingPkgbuild(io::Error),
 }
 
 // IO error
@@ -35,38 +44,71 @@ pub enum DownloadError {
 
 // const PARALLEL_DOWNLOAD: usize = 5;
 
-pub fn fetch_pkg(conf: &Conf, pkg: &Package) -> Result<SrcInfo, DownloadError> {
-    let pkg_dir = conf.pkg_dir(&pkg.name);
-    if pkg_dir.exists() {
-        fs::remove_dir_all(pkg_dir).ok();
-    }
-    let pkgs_dir = conf.server_dir.join("pkgs");
-    let (status, out, _) = match &pkg.repo {
+pub fn fetch_pkg(pkgs_dir: &PkgsDir, name: &str, repo: &Repo) -> Result<SrcInfo, DownloadError> {
+    let pkg_dir = pkgs_dir.pkg(name);
+    // TODO: Save .srcinfo and PKGBUILD hash
+    // if PKGBUILD hash is the same, put back
+    // the old .SRCINFO
+    let old_pkg_infos = if pkg_dir.exists() {
+        let old_pkg = match (
+            File::open(pkg_dir.join("PKGBUILD")),
+            read_to_string(pkg_dir.join(".SRCINFO")),
+        ) {
+            (Ok(mut makepkg), Ok(srcinfo)) => {
+                let mut hasher = Sha256::new();
+                if let Ok(_) = io::copy(&mut makepkg, &mut hasher) {
+                    Some((srcinfo, hasher.finalize().to_vec()))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+        fs::remove_dir_all(&pkg_dir).ok();
+        old_pkg
+    } else {
+        None
+    };
+    // let pkgs_dir = conf.server_dir.join("pkgs");
+    let (status, out, _) = match repo {
         Repo::None => command(
-            &["pkgctl", "repo", "clone", "--protocol=https", &pkg.name],
-            &pkgs_dir,
+            &["pkgctl", "repo", "clone", "--protocol=https", name],
+            pkgs_dir.path(),
             Some([("GIT_TERMINAL_PROMPT", "0")]),
         )?,
         Repo::Aur => command(
             &[
                 "git",
                 "clone",
-                &format!("https://aur.archlinux.org/{}.git", pkg.name),
+                &format!("https://aur.archlinux.org/{}.git", name),
             ],
-            &pkgs_dir,
+            pkgs_dir.path(),
             Some([("GIT_TERMINAL_PROMPT", "0")]),
         )?,
         Repo::Git(a) => command(
             &["git", "clone", &a],
-            &pkgs_dir,
+            pkgs_dir.path(),
             Some([("GIT_TERMINAL_PROMPT", "0")]),
         )?,
         Repo::File(_d) => {
             unimplemented!()
         }
     };
+    if let Some((srcinfo, makepkg)) = old_pkg_infos {
+        let mut new_makepkg =
+            File::open(pkg_dir.join("PKGBUILD")).map_err(|e| DownloadError::MissingPkgbuild(e))?;
+        let mut hasher = Sha256::new();
+        if let Ok(_) = io::copy(&mut new_makepkg, &mut hasher) {
+            if hasher.finalize().as_slice() != &makepkg {
+                info!("[{}] Replacing with the old .SRCINFO", name);
+                fs::write(pkg_dir.join(".SRCINFO"), &srcinfo)
+                    .inspect_err(|e| error!("[{}] Failed to write the old .SRCINFO: {}", name, e))
+                    .ok();
+            }
+        }
+    }
     if status.success() {
-        Ok(SrcInfo::new(conf, &pkg.name)?)
+        Ok(SrcInfo::new(pkgs_dir, name, false)?)
     } else {
         Err(DownloadError::NotFound(out))?
     }
@@ -108,62 +150,118 @@ pub fn download_pkg(
     conf: &mut Conf,
     name: &str,
     continue_on_err: bool,
-) -> Result<HashSet<SrcInfo>, DownloadError> {
+    ret: Sender<(SrcInfo, Package)>,
+) -> Result<(), DownloadError> {
     let mut pkgs = BTreeSet::new();
     pkgs.insert(name.to_string());
-    download_all(conf, pkgs, continue_on_err)
+    download_all(conf, pkgs, continue_on_err, ret)
 }
 
 pub fn download_all<'a>(
     conf: &'a mut Conf,
-    mut pkgs: BTreeSet<String>,
+    pkgs: BTreeSet<String>,
     continue_on_err: bool,
-) -> Result<HashSet<SrcInfo>, DownloadError> {
-    let mut done: HashMap<String, SrcInfo> = HashMap::new();
-    let mut errored: HashMap<String, DownloadError> = HashMap::new();
-
-    while let Some(pkg) = pkgs.pop_first() {
-        if done.contains_key(&pkg) || errored.contains_key(&pkg) {
-            continue;
-        }
-        info!("[{}] Downloading...", pkg);
-        conf.ensure_pkg(pkg.as_str());
-        let pkg = conf.get(pkg);
-        let pkg_build = match fetch_pkg(conf, &pkg) {
-            Ok(p) => p,
-            Err(e) => {
-                if continue_on_err {
-                    errored.insert(pkg.name.clone(), e);
-                    continue;
-                } else {
-                    return Err(e);
-                }
-            }
-        };
-        if conf.need_deps(&pkg) {
-            for dep in &pkg_build.deps {
-                if !done.contains_key(dep) && !errored.contains_key(dep) {
-                    pkgs.insert(dep.clone());
-                }
-            }
-        }
-        info!("[{}] Downloaded", pkg.name);
-        // TODO: no clone
-        done.insert(pkg.name.clone(), pkg_build);
+    ret: Sender<(SrcInfo, Package)>,
+) -> Result<(), DownloadError> {
+    let mut pdone = HashSet::new();
+    let mut perrored: HashMap<String, DownloadError> = HashMap::new();
+    let done: Mutex<&mut HashSet<String>> = Mutex::new(&mut pdone);
+    let errored = Mutex::new(&mut perrored);
+    let max_par_dl = conf.max_par_dl;
+    let pkgs_dir = conf.pkgs_dir();
+    let pkgs = pkgs
+        .iter()
+        .map(|a| conf.resolve(a))
+        .collect::<Vec<String>>();
+    let pconf = Mutex::new(conf);
+    let waiting = AtomicUsize::new(0);
+    let (new_pkg, worker) = crossbeam_channel::unbounded::<Option<String>>();
+    for pkg in pkgs {
+        new_pkg.send(Some(pkg)).expect("recv should be there");
     }
-    let mut res = HashSet::with_capacity(done.len());
-    for (_pkg, infos) in done {
-        // if infos.build {
-        res.insert(infos);
-        // } else {
-        // info!("[{}] Wont be build, it cannot be", pkg);
-        // }
-    }
+    thread::scope(|s| {
+        let ret = &ret;
+        let pkgs_dir = &pkgs_dir;
+        let new_pkg = &new_pkg;
+        let worker = &worker;
+        let conf = &pconf;
+        let done = &done;
+        let errored = &errored;
+        let waiting = &waiting;
+        for _ in 0..max_par_dl {
+            s.spawn(move || {
+                // If the channel is empty and everyone else is waiting close it
+                loop {
+                    if waiting.fetch_add(1, Ordering::Relaxed) == max_par_dl - 1
+                        && worker.is_empty()
+                    {
+                        for _ in 0..(max_par_dl - 1) {
+                            new_pkg.send(None).expect("Some one wasnt listenening");
+                        }
+                        return;
+                    }
+                    let Ok(Some(name)) = worker.recv() else {
+                        return;
+                    };
+                    waiting.fetch_sub(1, Ordering::Relaxed);
+                    {
+                        let mut done = done.lock().unwrap();
+                        let errored = errored.lock().unwrap();
+                        if done.contains(name.as_str()) || errored.contains_key(name.as_str()) {
+                            continue;
+                        }
+                        done.insert(name.clone());
+                    }
+                    info!("[{}] Downloading...", name);
+                    let (need_deps, pkg) = {
+                        let mut conf = conf.lock().unwrap();
+                        conf.ensure_pkg(name.as_str());
+                        let pkg = conf.get(name.as_str()).clone();
+                        let need_deps = conf.need_deps(&pkg);
+                        (need_deps, pkg)
+                    };
+                    let pkg_build = match fetch_pkg(pkgs_dir, &name, &pkg.repo) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            if continue_on_err {
+                                errored.lock().unwrap().insert(name.clone(), e);
+                                continue;
+                            } else {
+                                unimplemented!();
+                                // return Err(e);
+                            }
+                        }
+                    };
+                    if need_deps {
+                        let to_send = {
+                            let conf = conf.lock().unwrap();
+                            pkg_build
+                                .deps
+                                .iter()
+                                .map(|a| conf.resolve(a))
+                                .collect::<Vec<String>>()
+                        };
+                        for dep in to_send {
+                            /* TODO: send */
+                            new_pkg
+                                .send(Some(dep))
+                                .expect("Failed to queue no pkg to fetch");
+                        }
+                    }
+                    info!("[{}] Downloaded", name);
+                    // TODO: no clone
+                    ret.send((pkg_build, pkg))
+                        .expect("Failed to send fetched pkg");
+                }
+            });
+        }
+    });
+    let errored = errored.into_inner().unwrap();
     if !errored.is_empty() {
         error!("Issues while downloading pkgs: ");
         for (name, e) in errored {
             error!("[{}] Failed: {:?}", name, e);
         }
     }
-    Ok(res)
+    Ok(())
 }

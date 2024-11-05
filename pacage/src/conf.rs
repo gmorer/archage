@@ -23,6 +23,19 @@ fn default_name() -> String {
     "/".to_string()
 }
 
+#[derive(Clone)]
+pub struct PkgsDir(PathBuf);
+
+impl PkgsDir {
+    pub fn pkg(&self, pkg: &str) -> PathBuf {
+        self.0.join(pkg)
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum ConfError {
     #[error("System error: {0}")]
@@ -37,7 +50,7 @@ fn default_server() -> PathBuf {
     PathBuf::from("/tmp/archage")
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 #[serde(try_from = "String")]
 pub enum Repo {
     None,
@@ -68,7 +81,7 @@ impl std::default::Default for Repo {
     }
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct Package {
     // Name is set just after serialization
     #[serde(default = "default_name")]
@@ -98,7 +111,7 @@ fn write_value(file: &mut String, key: &str, value: Option<&String>, def: Option
     }
 }
 
-#[derive(Deserialize, Debug, Default)]
+#[derive(Deserialize, Debug, Default, Clone)]
 pub struct Makepkg {
     packager: Option<String>,
     cflags: Option<String>,
@@ -196,6 +209,8 @@ pub struct Conf {
     // TODO: container_runner: (podman, docker...)
     pub makepkg: Option<Makepkg>,
 
+    pub max_par_dl: usize,
+
     // Never serialized.
     pub resolver: HashMap<String, String>,
 }
@@ -277,6 +292,14 @@ impl Conf {
                 a
             )))?,
         };
+        let max_par_dl = match g.get("max_par_dl") {
+            None => 5,
+            Some(Value::Integer(max)) => (*max) as usize,
+            Some(a) => Err(ConfError::Format(format!(
+                "Invalid \"max_par_dl\": {:?}",
+                a
+            )))?,
+        };
         let deps = match g.get("deps") {
             None => false,
             Some(Value::Boolean(deps)) => *deps,
@@ -315,12 +338,17 @@ impl Conf {
             build_log_dir,
             deps,
             packages,
+            max_par_dl,
         })
     }
 
     // Directory containing the pkgbuild
     pub fn pkg_dir(&self, pkg: &str) -> PathBuf {
         self.server_dir.join("pkgs").join(pkg)
+    }
+
+    pub fn pkgs_dir(&self) -> PkgsDir {
+        PkgsDir(self.server_dir.join("pkgs"))
     }
 
     // Directory containing the package sources
@@ -357,17 +385,21 @@ impl Conf {
             deps: None,
             repo: Repo::None,
         };
+        // self.packages.
         self.packages.insert(new);
     }
 
     // Name should not be used after this call, but pkg.name
-    pub fn get(&self, name: String) -> &Package {
-        let name = self
-            .resolver
-            .get(name.as_str())
-            .map(|a| a.as_str())
-            .unwrap_or(name.as_str());
+    pub fn get(&self, name: &str) -> &Package {
+        let name = self.resolver.get(name).map(|a| a.as_str()).unwrap_or(name);
         self.packages.iter().find(|p| p.name == name).expect("aa")
+    }
+
+    pub fn resolve(&self, name: &str) -> String {
+        self.resolver
+            .get(name)
+            .map(|a| a.clone())
+            .unwrap_or_else(|| name.to_string())
     }
 
     pub fn init(&self) -> Result<(), String> {
@@ -427,6 +459,8 @@ impl Conf {
             // TODO: container_runner: (podman, docker...)
             makepkg: None,
 
+            max_par_dl: 5,
+
             // Never serialized.
             resolver: resolver.unwrap_or(HashMap::new()),
         }
@@ -458,6 +492,7 @@ impl Conf {
             host_server_dir: None,
             build_log_dir: None,
             deps: false,
+            max_par_dl: 5,
             conf_dir: PathBuf::from("."),
             packages: HashSet::new(),
             makepkg: None,

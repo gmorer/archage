@@ -6,11 +6,11 @@ use pacage::conf::Conf;
 
 mod build;
 mod clean;
-mod download;
 mod get;
 mod patch;
 mod status;
 mod update;
+pub mod util;
 
 pub fn cmd_err(e: impl Display) -> i32 {
     eprintln!("{}", e);
@@ -40,8 +40,6 @@ pub struct Cli {
 enum Commands {
     /// Download and build a package
     Get(get::Get),
-    /// Only download
-    Download(download::Download),
     /// Only build
     Build(build::Build),
     /// Update packages
@@ -66,7 +64,6 @@ impl CliCmd for Commands {
     fn execute(&self, conf: Conf) -> Result<(), i32> {
         match self {
             Commands::Get(a) => a.execute(conf),
-            Commands::Download(a) => a.execute(conf),
             Commands::Build(a) => a.execute(conf),
             Commands::Update(a) => a.execute(conf),
             Commands::Status(a) => a.execute(conf),

@@ -35,7 +35,8 @@ impl CliCmd for Status {
                     if typ.is_dir() {
                         let name = file.file_name();
                         let name = name.to_string_lossy();
-                        let pkg = SrcInfo::new(&conf, name.as_ref()).map_err(cmd_err)?;
+                        let pkg = SrcInfo::new(&conf.pkgs_dir(), name.as_ref(), false)
+                            .map_err(cmd_err)?;
                         name_max_len = max(name_max_len, pkg.name.len());
                         version_max_len = max(version_max_len, pkg.get_version().to_string().len());
                         res.insert(pkg.name.clone(), (Some(pkg), None));

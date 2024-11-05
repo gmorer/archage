@@ -335,7 +335,6 @@ type AddEntry = (
 
 /// Basicly repo-add reimplementation
 pub fn add(conf: &Conf, pkgs: &[SrcInfo]) -> Result<(), AddError> {
-    // TODO: take in multiple packages
     let mut pkgfiles: Vec<AddEntry> = Vec::new();
     let mut to_remove = vec![];
 
@@ -354,7 +353,7 @@ pub fn add(conf: &Conf, pkgs: &[SrcInfo]) -> Result<(), AddError> {
         let (pkginfo, csize, sha256, files) = match read_package(&pkgfile) {
             Ok(v) => v,
             Err(e) => {
-                error!("[{}] {}", pkg.name, e);
+                error!("[{}({})] {}", pkg.name, pkg.get_version(), e);
                 continue;
             }
         };
@@ -503,28 +502,30 @@ mod tests {
 
     #[test]
     fn add_items_to_db() {
-        let a = Conf::_test_builder().server_dir("../tmp".into()).call();
-        assert!(matches!(list(&a).unwrap_err(), RepoError::NoRepo));
-        let pkginfo1 = SrcInfo::new(&a, "fake_pkg1").unwrap();
-        add(&a, &[pkginfo1]).unwrap();
-        let pkg_list = list(&a).unwrap();
+        let conf = Conf::_test_builder().server_dir("../tmp".into()).call();
+        assert!(matches!(list(&conf).unwrap_err(), RepoError::NoRepo));
+        let pkgsdir = conf.pkgs_dir();
+        let pkginfo1 = SrcInfo::new(&pkgsdir, "fake_pkg1", false).unwrap();
+        add(&conf, &[pkginfo1]).unwrap();
+        let pkg_list = list(&conf).unwrap();
         assert_eq!(pkg_list.len(), 1);
         let entry = pkg_list.get(0).unwrap();
         assert_eq!(entry.name, "fake_pkg1", "Checking entry name");
         assert_eq!(entry.version, "2024.04.07-2");
-        let pkginfo2 = SrcInfo::new(&a, "fake_pkg2").unwrap();
-        add(&a, &[pkginfo2]).unwrap();
-        let pkg_list = list(&a).unwrap();
+        let pkginfo2 = SrcInfo::new(&pkgsdir, "fake_pkg2", false).unwrap();
+        add(&conf, &[pkginfo2]).unwrap();
+        let pkg_list = list(&conf).unwrap();
         assert_eq!(pkg_list.len(), 2);
     }
     #[test]
     fn add_2_items_to_db() {
-        let a = Conf::_test_builder().server_dir("../tmp".into()).call();
-        assert!(matches!(list(&a).unwrap_err(), RepoError::NoRepo));
-        let pkginfo1 = SrcInfo::new(&a, "fake_pkg1").unwrap();
-        let pkginfo2 = SrcInfo::new(&a, "fake_pkg2").unwrap();
-        add(&a, &[pkginfo1, pkginfo2]).unwrap();
-        let pkg_list = list(&a).unwrap();
+        let conf = Conf::_test_builder().server_dir("../tmp".into()).call();
+        assert!(matches!(list(&conf).unwrap_err(), RepoError::NoRepo));
+        let pkgsdir = conf.pkgs_dir();
+        let pkginfo1 = SrcInfo::new(&pkgsdir, "fake_pkg1", false).unwrap();
+        let pkginfo2 = SrcInfo::new(&pkgsdir, "fake_pkg2", false).unwrap();
+        add(&conf, &[pkginfo1, pkginfo2]).unwrap();
+        let pkg_list = list(&conf).unwrap();
         assert_eq!(pkg_list.len(), 2);
     }
 }
