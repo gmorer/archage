@@ -1,12 +1,21 @@
 use crossbeam_channel::{unbounded, Receiver};
-use log::error;
+use log::{error, info};
 use pacage::{
     builder,
     conf::{Conf, Package},
     db,
-    format::SrcInfo,
+    format::{DbDesc, SrcInfo},
     patch::patch,
 };
+
+fn is_outdated(dbpkgs: &Vec<DbDesc>, pkg: &SrcInfo) -> bool {
+    for dbpkg in dbpkgs {
+        if dbpkg.name == pkg.name {
+            return dbpkg.get_version() != pkg.get_version();
+        }
+    }
+    false
+}
 
 pub fn dl_and_build(
     conf: &Conf,
@@ -19,17 +28,15 @@ pub fn dl_and_build(
     // Check if package is already there
     // TODO: spawn it own thread
     // TODO: check if pkg is lower
-    'pkg: while let Ok((wanted_srcinfo, wanted_pkg)) = pkgbuilds.recv() {
+    while let Ok((wanted_srcinfo, wanted_pkg)) = pkgbuilds.recv() {
         if let Ok(dbpkgs) = &dbpkgs {
-            for db_package in dbpkgs {
-                if wanted_srcinfo.name == db_package.name
-                    && wanted_srcinfo.get_version() != db_package.get_version()
-                {
-                    // Already up to date
-                    src_to_dl_sender.send((wanted_srcinfo, wanted_pkg));
-                    continue 'pkg;
-                }
+            if is_outdated(dbpkgs, &wanted_srcinfo) {
+                src_to_dl_sender.send((wanted_srcinfo, wanted_pkg));
+            } else {
+                info!("[{}] Already up to date", wanted_srcinfo.name);
             }
+        } else {
+            src_to_dl_sender.send((wanted_srcinfo, wanted_pkg));
         }
     }
     drop(src_to_dl_sender);
@@ -43,6 +50,12 @@ pub fn dl_and_build(
 
     let mut pkgbuilds = Vec::new();
     while let Ok((srcinfo, pkg)) = source_dl.recv() {
+        if let Ok(dbpkgs) = &dbpkgs {
+            if !is_outdated(dbpkgs, &srcinfo) {
+                info!("[{}] Already up to date", srcinfo.name);
+                continue;
+            }
+        }
         if let Err(e) = patch(&conf, &srcinfo) {
             let e = format!("[{}] Skipping build, failed to patch: {}", srcinfo.name, e);
             if continue_on_e {
@@ -62,6 +75,8 @@ pub fn dl_and_build(
         }
     }
 
-    db::add(&conf, &pkgbuilds).map_err(|e| e.to_string())?;
+    if !pkgbuilds.is_empty() {
+        db::add(&conf, &pkgbuilds).map_err(|e| e.to_string())?;
+    }
     Ok(pkgbuilds.len())
 }

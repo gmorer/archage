@@ -26,7 +26,7 @@ pub enum DownloadError {
 
     // #[error("Failed to parse PKGBUILD : {0}")]
     // PkgBuild(#[from] io::Error),
-    #[error("Not Found")]
+    #[error("Not Found: {0:?}")]
     NotFound(Vec<String>),
 
     #[error("Parsing error: {0}")]
@@ -46,29 +46,9 @@ pub enum DownloadError {
 
 pub fn fetch_pkg(pkgs_dir: &PkgsDir, name: &str, repo: &Repo) -> Result<SrcInfo, DownloadError> {
     let pkg_dir = pkgs_dir.pkg(name);
-    // TODO: Save .srcinfo and PKGBUILD hash
-    // if PKGBUILD hash is the same, put back
-    // the old .SRCINFO
-    let old_pkg_infos = if pkg_dir.exists() {
-        let old_pkg = match (
-            File::open(pkg_dir.join("PKGBUILD")),
-            read_to_string(pkg_dir.join(".SRCINFO")),
-        ) {
-            (Ok(mut makepkg), Ok(srcinfo)) => {
-                let mut hasher = Sha256::new();
-                if let Ok(_) = io::copy(&mut makepkg, &mut hasher) {
-                    Some((srcinfo, hasher.finalize().to_vec()))
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        };
-        fs::remove_dir_all(&pkg_dir).ok();
-        old_pkg
-    } else {
-        None
-    };
+    if pkg_dir.exists() {
+        fs::remove_dir_all(pkg_dir).ok();
+    }
     // let pkgs_dir = conf.server_dir.join("pkgs");
     let (status, out, _) = match repo {
         Repo::None => command(
@@ -94,19 +74,6 @@ pub fn fetch_pkg(pkgs_dir: &PkgsDir, name: &str, repo: &Repo) -> Result<SrcInfo,
             unimplemented!()
         }
     };
-    if let Some((srcinfo, makepkg)) = old_pkg_infos {
-        let mut new_makepkg =
-            File::open(pkg_dir.join("PKGBUILD")).map_err(|e| DownloadError::MissingPkgbuild(e))?;
-        let mut hasher = Sha256::new();
-        if let Ok(_) = io::copy(&mut new_makepkg, &mut hasher) {
-            if hasher.finalize().as_slice() != &makepkg {
-                info!("[{}] Replacing with the old .SRCINFO", name);
-                fs::write(pkg_dir.join(".SRCINFO"), &srcinfo)
-                    .inspect_err(|e| error!("[{}] Failed to write the old .SRCINFO: {}", name, e))
-                    .ok();
-            }
-        }
-    }
     if status.success() {
         Ok(SrcInfo::new(pkgs_dir, name, false)?)
     } else {
@@ -227,6 +194,7 @@ pub fn download_all<'a>(
                                 errored.lock().unwrap().insert(name.clone(), e);
                                 continue;
                             } else {
+                                error!("[{}] fail to download: {}", name, e);
                                 unimplemented!();
                                 // return Err(e);
                             }
