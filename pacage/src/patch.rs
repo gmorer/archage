@@ -116,7 +116,7 @@ pub fn patch_dir(
         if !status.success() {
             error!("[{}] Failed to apply patch {:?}", name, patch,);
             write_last_lines(&out, 10);
-            match out_to_file(conf, name, "patch", &out, false) {
+            match out_to_file(&conf.build_log_dir, name, "patch", &out, false) {
                 Ok(Some(file)) => info!("Full failed patch writed to {}", file),
                 Ok(None) => {}
                 Err(e) => error!("Failed to write patch output to logs: {}", e),

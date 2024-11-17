@@ -1,13 +1,13 @@
 use crate::conf::{Makepkg, Package};
-use crossbeam_channel::{Receiver, Sender};
+use crossbeam_channel::{bounded, Receiver, Sender};
 use log::{error, info};
 use std::cmp::max;
 use std::collections::HashSet;
 use std::fmt::Display;
 use std::fs::{self};
-use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
+use std::{io, thread};
 use thiserror::Error;
 
 use crate::cmd::{command, out_to_file, write_last_lines, CmdError, ExecError, NOENV};
@@ -77,21 +77,48 @@ impl Builder {
         command(&[container_runner, "rm", CONTAINER_NAME], "/", NOENV).ok();
     }
 
-    pub fn new(conf: &Conf) -> Result<Self, BuilderError> {
-        info!("Initiating builder container...");
-        Self::stop_builder(&conf.container_runner);
+    pub fn new_async(conf: &Conf) -> Receiver<Result<Self, BuilderError>> {
+        let (sender, receiver) = bounded(1);
+        let server_dir = conf.server_dir.clone();
+        let container_runner = conf.container_runner.clone();
+        let host_server_dir = conf.host_server_dir.clone();
+        let build_log_dir = conf.build_log_dir.clone();
+        thread::spawn(move || {
+            sender
+                .send(Self::new(
+                    &server_dir,
+                    container_runner,
+                    &host_server_dir,
+                    &build_log_dir,
+                ))
+                .ok();
+        });
+        receiver
+    }
 
-        let server_dir = conf.host_server_dir.as_deref();
+    pub fn new(
+        conf_server_dir: &PathBuf,
+        container_runner: String,
+        host_server_dir: &Option<PathBuf>,
+        build_log_dir: &Option<PathBuf>,
+    ) -> Result<Self, BuilderError> {
+        info!("Initiating builder container...");
+        Self::stop_builder(&container_runner);
+
+        let server_dir = host_server_dir.as_deref();
         let server_dir = String::from_utf8_lossy(
             server_dir
-                .unwrap_or(&conf.server_dir)
+                .unwrap_or(&conf_server_dir)
                 .as_os_str()
                 .as_encoded_bytes(),
         );
 
+        // let container_runner = conf.container_runner.clone();
+        // let conf_server_dir = conf.server_dir.clone();
+
         let (status, out, _) = command(
             &[
-                &conf.container_runner,
+                &container_runner,
                 "run",
                 "--rm",
                 "--pids-limit", // got a pid limit :/
@@ -105,7 +132,7 @@ impl Builder {
                 "-c",
                 "sleep infinity",
             ],
-            &conf.server_dir,
+            &conf_server_dir,
             NOENV,
         )?;
         if !status.success() {
@@ -114,7 +141,7 @@ impl Builder {
         }
         let (status, out, _) = command(
             &[
-                &conf.container_runner,
+                &container_runner,
                 "exec",
                 "--workdir=/build",
                 "--env=HOME=/tmp",
@@ -124,10 +151,16 @@ impl Builder {
                 &format!("/build/{}", BUILD_SCRIPT_FILE),
                 "start",
             ],
-            &conf.server_dir,
+            &conf_server_dir,
             NOENV,
         )?;
-        match out_to_file(conf, "pacage_builder", "start", &out, status.success()) {
+        match out_to_file(
+            &build_log_dir,
+            "pacage_builder",
+            "start",
+            &out,
+            status.success(),
+        ) {
             Ok(Some(file)) => info!("Start logs writed to {}", file),
             Ok(None) => {}
             Err(e) => error!("Failed to write output to logs: {}", e),
@@ -137,9 +170,7 @@ impl Builder {
             Err(CmdError::from_output(out))?;
         }
         info!("Builder container initiated");
-        Ok(Self {
-            container_runner: conf.container_runner.clone(),
-        })
+        Ok(Self { container_runner })
     }
 
     pub fn download_srcs(
@@ -218,7 +249,7 @@ impl Builder {
             NOENV,
         )?;
         fs::remove_file(makepkgconf_path).ok();
-        match out_to_file(conf, name, "get", &out, status.success()) {
+        match out_to_file(&conf.build_log_dir, name, "get", &out, status.success()) {
             Ok(Some(file)) => info!("[{}] Get logs writed to {}", name, file),
             Ok(None) => {}
             Err(e) => error!("[{}] Failed to write output to logs: {}", name, e),
@@ -277,7 +308,7 @@ impl Builder {
             NOENV,
         )?;
         fs::remove_file(makepkgconf_path).ok();
-        match out_to_file(conf, name, "build", &out, status.success()) {
+        match out_to_file(&conf.build_log_dir, name, "build", &out, status.success()) {
             Ok(Some(file)) => info!("[{}] Build logs writed to {}", name, file),
             Ok(None) => {}
             Err(e) => error!("[{}] Failed to write output to logs: {}", name, e),

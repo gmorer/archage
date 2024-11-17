@@ -4,12 +4,10 @@ use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{BufWriter, Error as IoError, ErrorKind as IoErrorKind, Write};
 use std::os::fd::{AsFd, AsRawFd};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
-
-use crate::conf::Conf;
 
 pub const NOENV: Option<Vec<(String, String)>> = None::<Vec<(String, String)>>;
 
@@ -153,13 +151,13 @@ where
 }
 
 pub fn out_to_file(
-    conf: &Conf,
+    build_log_dir: &Option<PathBuf>,
     pkg: &str,
     action: &str,
     out: &Vec<String>,
     success: bool,
 ) -> Result<Option<String>, IoError> {
-    if let Some(build_log_dir) = &conf.build_log_dir {
+    if let Some(build_log_dir) = build_log_dir {
         let ts = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()

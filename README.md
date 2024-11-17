@@ -108,9 +108,10 @@ ccache = false
 - [x] dependencies (will allow groups)
 - [x] use custom git url (AUR)
 - [x] implement repo-add to get control over the db
-- [ ] parallel download/build_init
-- [ ] parallel build/install for multi packages
-- [ ] handle version change when fetching sources (apparently the original PKGBUILD changes, so we could just get srcinfo out of it)
+- [x] parallel download/build_init
+- [x] parallel build/install for multi packages
+- [x] handle version change when fetching sources (apparently the original PKGBUILD changes, so we could just get srcinfo out of it)
+- [ ] find solution for aur/other build dependecies
 - [ ] Get rid of zombies pids in between builds 
 - [ ] Test some big packages (base, base-devel, chromium, firefox)
 - [ ] handle split pkg: List of pkgbase and a list of pkgname with a ref to pkgbase

@@ -1,7 +1,7 @@
 use crossbeam_channel::{unbounded, Receiver};
 use log::{error, info};
 use pacage::{
-    builder,
+    builder::{Builder, BuilderError},
     conf::{Conf, Package},
     db,
     format::{DbDesc, SrcInfo},
@@ -20,6 +20,7 @@ fn is_outdated(dbpkgs: &Vec<DbDesc>, pkg: &SrcInfo) -> bool {
 pub fn dl_and_build(
     conf: &Conf,
     pkgbuilds: Receiver<(SrcInfo, Package)>,
+    builder_recv: Receiver<Result<Builder, BuilderError>>,
     continue_on_e: bool,
 ) -> Result<usize, String> {
     let (src_to_dl_sender, src_to_dl) = unbounded::<(SrcInfo, Package)>();
@@ -41,7 +42,11 @@ pub fn dl_and_build(
     }
     drop(src_to_dl_sender);
     // TODO: before
-    let builder = builder::Builder::new(&conf).map_err(|e| e.to_string())?;
+    let builder = match builder_recv.recv() {
+        Ok(Ok(builder)) => builder,
+        Err(e) => Err(format!("Failed to recv builder: {}", e))?,
+        Ok(Err(e)) => Err(format!("Failed to create builder: {}", e))?,
+    };
 
     // TOOD: spawn thread
     builder

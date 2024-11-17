@@ -1,8 +1,6 @@
 use crossbeam_channel::Sender;
 use log::{error, info};
-use sha2::{Digest, Sha256};
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::fs::{read_to_string, File};
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::sync::Mutex;
@@ -200,6 +198,7 @@ pub fn download_all<'a>(
                             }
                         }
                     };
+                    println!("need deps: {}", need_deps);
                     if need_deps {
                         let to_send = {
                             let conf = conf.lock().unwrap();

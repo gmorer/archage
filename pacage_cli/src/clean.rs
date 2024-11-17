@@ -36,15 +36,15 @@ impl CliCmd for Clean {
     }
 }
 
-fn clear_srcs(conf: Conf) -> Result<(), i32> {
+fn clear_srcs(_conf: Conf) -> Result<(), i32> {
     unimplemented!()
 }
-fn clear_repo(conf: Conf) -> Result<(), i32> {
+fn clear_repo(_conf: Conf) -> Result<(), i32> {
     unimplemented!()
 }
-fn clear_logs(conf: Conf) -> Result<(), i32> {
+fn clear_logs(_conf: Conf) -> Result<(), i32> {
     unimplemented!()
 }
-fn clear_all(conf: Conf) -> Result<(), i32> {
+fn clear_all(_conf: Conf) -> Result<(), i32> {
     unimplemented!()
 }

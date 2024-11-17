@@ -55,7 +55,13 @@ impl CliCmd for Open {
             return Err(2);
         }
         // TODO: maybe if orig and patched dir exist we dont download/cleanup and just cd into it
-        let builder = Builder::new(&conf).map_err(cmd_err)?;
+        let builder = Builder::new(
+            &conf.server_dir,
+            conf.container_runner.clone(),
+            &conf.host_server_dir,
+            &conf.build_log_dir,
+        )
+        .map_err(cmd_err)?;
         let srcinfo = builder
             .download_src(&conf, srcinfo, pkg.makepkg.as_ref())
             .map_err(cmd_err)?;

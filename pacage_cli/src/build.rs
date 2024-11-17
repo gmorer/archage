@@ -21,7 +21,13 @@ impl CliCmd for Build {
                 self.name
             )))?;
         }
-        let builder = builder::Builder::new(&conf).map_err(cmd_err)?;
+        let builder = builder::Builder::new(
+            &conf.server_dir,
+            conf.container_runner.clone(),
+            &conf.host_server_dir,
+            &conf.build_log_dir,
+        )
+        .map_err(cmd_err)?;
         patch(&conf, &pkg_build).map_err(cmd_err)?;
         conf.ensure_pkg(&self.name);
         let pkg = conf.get(self.name.as_str());

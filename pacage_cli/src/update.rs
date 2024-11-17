@@ -1,18 +1,16 @@
-use std::collections::{BTreeSet, HashSet};
+use std::collections::BTreeSet;
 
 use clap::Args;
-use crossbeam_channel::{unbounded, Receiver};
+use crossbeam_channel::unbounded;
 use log::{error, info};
 use pacage::conf::Package;
 use pacage::format::SrcInfo;
 
 use crate::util::dl_and_build;
 use crate::{cmd_err, CliCmd};
-use pacage::builder;
-use pacage::patch::patch;
+use pacage::builder::Builder;
 use pacage::{
     conf::Conf,
-    db,
     download::{download_all, download_pkg},
 };
 
@@ -43,6 +41,7 @@ impl Update {
     fn update_one(&self, mut conf: Conf, name: &str) -> Result<(), i32> {
         let (pkgbuildssender, pkgbuilds) = unbounded::<(SrcInfo, Package)>();
         let pkg = conf.resolve(name);
+        let builder_recv = Builder::new_async(&conf);
         if self.no_fetch {
             match SrcInfo::new(&conf.pkgs_dir(), &pkg, false) {
                 Ok(srcinfo) => {
@@ -56,7 +55,7 @@ impl Update {
         } else {
             download_pkg(&mut conf, pkg.as_str(), false, pkgbuildssender).map_err(cmd_err)?;
         }
-        let num = dl_and_build(&conf, pkgbuilds, true).map_err(cmd_err)?;
+        let num = dl_and_build(&conf, pkgbuilds, builder_recv, true).map_err(cmd_err)?;
         info!("Updated {} packages(s)", num);
         Ok(())
     }
@@ -65,6 +64,7 @@ impl Update {
         // TODO: get it from install db instead
         let (pkgbuildssender, pkgbuilds) = unbounded::<(SrcInfo, Package)>();
         let mut to_dl = BTreeSet::new();
+        let builder_recv = Builder::new_async(&conf);
         for k in &conf.packages {
             to_dl.insert(k.name.clone());
         }
@@ -84,7 +84,7 @@ impl Update {
         } else {
             download_all(&mut conf, to_dl, true, pkgbuildssender).map_err(cmd_err)?;
         };
-        let num = dl_and_build(&conf, pkgbuilds, true).map_err(cmd_err)?;
+        let num = dl_and_build(&conf, pkgbuilds, builder_recv, true).map_err(cmd_err)?;
         info!("Updated {} packages(s)", num);
         Ok(())
     }

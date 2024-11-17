@@ -2,16 +2,14 @@ use std::collections::BTreeSet;
 
 use clap::Args;
 use crossbeam_channel::unbounded;
-use log::{error, info};
+use log::info;
 use pacage::conf::Package;
 use pacage::format::SrcInfo;
 
 use crate::util::dl_and_build;
 use crate::{cmd_err, CliCmd};
-use pacage::builder;
-use pacage::db;
-use pacage::download::{download_all, download_pkg};
-use pacage::patch::patch;
+use pacage::builder::Builder;
+use pacage::download::download_all;
 
 #[derive(Args, Debug)]
 pub struct Get {
@@ -37,8 +35,9 @@ impl CliCmd for Get {
         let mut to_dl = BTreeSet::new();
         to_dl.insert(self.name.clone());
 
+        let builder_recv = Builder::new_async(&conf);
         download_all(&mut conf, to_dl, true, pkgbuildssender).map_err(cmd_err)?;
-        let num = dl_and_build(&conf, pkgbuilds, true).map_err(cmd_err)?;
+        let num = dl_and_build(&conf, pkgbuilds, builder_recv, true).map_err(cmd_err)?;
         info!("Added {} packages(s)", num);
         Ok(())
         // let pkgbuilds = download_pkg(&mut conf, &self.name, true).map_err(cmd_err)?;
