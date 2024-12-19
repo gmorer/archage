@@ -5,6 +5,7 @@ Selectively locally compile arch packages for more customisation. Kindof like ge
 
 ## Usage
 Add a new entry to the `/etc/pacman.conf` with the output path of *pacage*, should be before `[core]` and `[extra]`.
+
 **/etc/pacman.conf**:
 ```
 [...]
